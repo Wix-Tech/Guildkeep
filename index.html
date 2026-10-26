@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#080808" />
+    <meta name="description" content="Guildkeep keeps group conversations searchable and in order." />
+    <link rel="icon" type="image/svg+xml" href="./brand/favicon.svg" />
+    <link rel="apple-touch-icon" href="./brand/apple-touch-icon.png" />
+    <title>Guildkeep — messages</title>
+  </head>
+  <body>
+    <div id="setup-panel" class="setup-panel" hidden>
+      <div class="setup-brand"><img class="brand-logo" alt="" /><strong>Guildkeep</strong></div>
+      <h1>Connect Guildkeep to Supabase</h1>
+      <p>Add the Supabase project URL and publishable key as Vite environment variables, then rebuild the app.</p>
+      <code>VITE_SUPABASE_URL</code>
+      <code>VITE_SUPABASE_ANON_KEY</code>
+      <p class="setup-note">These are public client settings. Never put a Supabase secret or service-role key in this app.</p>
+    </div>
+
+    <section id="auth-panel" class="auth-panel" hidden aria-labelledby="auth-title">
+      <div class="auth-brand">
+        <img class="brand-logo" alt="" />
+        <span><strong>Guildkeep</strong><small>Messages</small></span>
+      </div>
+      <h1 id="auth-title">Welcome back</h1>
+      <p id="auth-intro">Sign in to continue your conversations.</p>
+      <form id="auth-form">
+        <label id="display-name-field" hidden>
+          Display name
+          <input name="display_name" autocomplete="name" maxlength="60" />
+        </label>
+        <label id="username-field" hidden>
+          Username
+          <span class="input-prefix"><span>@</span><input name="username" autocomplete="username" minlength="3" maxlength="24" pattern="[A-Za-z0-9_]{3,24}" /></span>
+        </label>
+        <label>
+          Email
+          <input name="email" type="email" autocomplete="email" required maxlength="254" />
+        </label>
+        <label>
+          Password
+          <input name="password" type="password" autocomplete="current-password" required minlength="8" />
+        </label>
+        <button class="primary-button" id="auth-submit" type="submit">Sign in</button>
+      </form>
+      <button class="text-button" id="auth-toggle" type="button">Create an account</button>
+      <p id="auth-status" class="form-status" role="status" aria-live="polite"></p>
+    </section>
+
+    <div id="app-shell" class="app-shell" hidden>
+      <header class="app-topbar">
+        <div class="brand">
+          <img class="brand-logo" alt="" />
+          <span class="brand-copy"><strong>Guildkeep</strong><span>Messages</span></span>
+        </div>
+        <div class="topbar-profile">
+          <span id="profile-label">Signed in</span>
+          <button id="sign-out" class="text-button sign-out" type="button">Sign out</button>
+        </div>
+      </header>
+
+      <div id="app-workspace" class="app-workspace" data-view="chats">
+        <nav id="main-nav" class="main-nav" aria-label="Main navigation">
+          <button type="button" class="nav-item is-active" data-view="chats" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H6l-3 2 1-4a7.5 7.5 0 1 1 16-5.5Z" /><path d="M8 11h.01M12 11h.01M16 11h.01" /></svg><small>Chats</small></button>
+          <button type="button" class="nav-item" data-view="groups"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3" /><path d="M3 20v-1a6 6 0 0 1 12 0v1M16 5.2a3 3 0 0 1 0 5.6M18 14a5 5 0 0 1 3 4.6V20" /></svg><small>Groups</small></button>
+          <button type="button" class="nav-item" data-view="channels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 18-5-5 17-4-7-7-5Z" /><path d="m12 16 4-6" /></svg><small>Channels</small></button>
+          <button type="button" class="nav-item" data-view="status"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><path d="M12 7v.01" /></svg><small>Status</small></button>
+          <button type="button" class="nav-item" data-view="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.7a8 8 0 0 1-1.8 1l-.3 1.8h-2.8l-.3-1.8a8 8 0 0 1-1.8-1l-1.7.7-1.4-2.4 1.4-1.1a7 7 0 0 1 0-2l-1.4-1.1 1.4-2.4 1.7.7a8 8 0 0 1 1.8-1l.3-1.8h2.8l.3 1.8a8 8 0 0 1 1.8 1l1.7-.7 1.4 2.4-1.4 1.1a7 7 0 0 1 0 2Z" /></svg><small>Settings</small></button>
+        </nav>
+        <main class="chat-layout">
+        <aside class="chat-sidebar" aria-label="Chats and navigation">
+          <div class="sidebar-heading">
+            <h1 id="sidebar-title">Chats</h1>
+            <div class="sidebar-actions">
+              <button id="new-group" class="new-chat-button" type="button" aria-label="Create a group"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="8" r="3" /><path d="M3 20v-1a6 6 0 0 1 12 0v1M18 8v6m-3-3h6" /></svg><span>New group</span></button>
+              <button id="new-channel" class="new-chat-button" type="button" aria-label="Create a channel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 18-5-5 17-4-7-7-5Z" /><path d="m12 16 4-6" /></svg><span>New channel</span></button>
+              <button id="new-status" class="new-chat-button" type="button" aria-label="Post a status"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /></svg><span>Add status</span></button>
+              <button id="new-chat" class="new-chat-button" type="button" aria-label="Start a new chat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg><span>New chat</span></button>
+            </div>
+          </div>
+          <div class="searchbar">
+            <label for="chat-search">
+              <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" />
+              </svg>
+              <input id="chat-search" type="search" placeholder="Search chats and latest messages" autocomplete="off" />
+            </label>
+          </div>
+          <div id="chat-list" class="chat-list" aria-live="polite"></div>
+        </aside>
+
+        <section class="conversation" id="conversation" aria-label="Conversation">
+          <div id="conversation-content" class="welcome">
+            <div class="welcome-icon" aria-hidden="true">✦</div>
+            <h2>Your conversations, together</h2>
+            <p>Start a chat by username, send a message, and keep the conversation in sync.</p>
+          </div>
+        </section>
+      </main>
+      </div>
+    </div>
+
+    <div id="new-chat-dialog" class="dialog-backdrop" hidden>
+      <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="new-chat-title">
+        <button id="close-new-chat" class="dialog-close" type="button" aria-label="Close">×</button>
+        <h2 id="new-chat-title">Find people</h2>
+        <p>Search by display name or username, then select someone to open your chat.</p>
+        <form id="new-chat-form">
+          <label>
+            Find a person
+            <input name="username" type="search" autocomplete="off" required minlength="2" maxlength="40" placeholder="Name or username" aria-label="Search people" />
+          </label>
+          <div id="people-search-results" class="people-search-results" aria-live="polite"></div>
+        </form>
+        <p id="new-chat-status" class="form-status" role="status" aria-live="polite"></p>
+      </section>
+    </div>
+
+    <div id="profile-dialog" class="dialog-backdrop" hidden>
+      <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="profile-dialog-title">
+        <button class="dialog-close" type="button" data-close-dialog="profile-dialog" aria-label="Close">×</button>
+        <h2 id="profile-dialog-title">Your profile</h2>
+        <p>Your username is how friends find and invite you.</p>
+        <form id="profile-form" class="feature-form">
+          <div class="profile-picture-editor">
+            <img id="profile-picture-preview" alt="Profile picture preview" />
+            <label class="secondary-button" for="profile-picture-input">Choose picture</label>
+            <input id="profile-picture-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden />
+          </div>
+          <label>Username
+            <input name="username" readonly />
+          </label>
+          <label>Display name
+            <input name="display_name" maxlength="60" required />
+          </label>
+          <label>About
+            <textarea name="bio" maxlength="160" rows="3" placeholder="A little about you"></textarea>
+          </label>
+          <button class="primary-button" type="submit">Save profile</button>
+        </form>
+        <p id="profile-status" class="form-status" role="status" aria-live="polite"></p>
+      </section>
+    </div>
+
+    <div id="channel-create-dialog" class="dialog-backdrop" hidden>
+      <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="channel-create-title">
+        <button class="dialog-close" type="button" data-close-dialog="channel-create-dialog" aria-label="Close">×</button>
+        <h2 id="channel-create-title">Create a channel</h2>
+        <p>Channels are public broadcasts. Only channel admins can publish.</p>
+        <form id="channel-create-form" class="feature-form">
+          <label>Channel name<input name="title" minlength="2" maxlength="80" required /></label>
+          <label>Description<textarea name="description" rows="3" maxlength="1000"></textarea></label>
+          <button class="primary-button" type="submit">Create channel</button>
+        </form>
+        <p id="channel-create-status" class="form-status" role="status" aria-live="polite"></p>
+      </section>
+    </div>
+
+    <div id="status-create-dialog" class="dialog-backdrop" hidden>
+      <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="status-create-title">
+        <button class="dialog-close" type="button" data-close-dialog="status-create-dialog" aria-label="Close">×</button>
+        <h2 id="status-create-title">Share a status</h2>
+        <p>Visible to people you have a one-to-one chat with. Statuses expire after 24 hours.</p>
+        <form id="status-create-form" class="feature-form">
+          <label>Text<textarea name="body" rows="3" maxlength="700" placeholder="What’s happening?"></textarea></label>
+          <label>Photo or video<input name="media" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm" /></label>
+          <button class="primary-button" type="submit">Post status</button>
+        </form>
+        <p id="status-create-status" class="form-status" role="status" aria-live="polite"></p>
+      </section>
+    </div>
+
+    <div id="forward-dialog" class="dialog-backdrop" hidden>
+      <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="forward-title">
+        <button class="dialog-close" type="button" data-close-dialog="forward-dialog" aria-label="Close">×</button>
+        <h2 id="forward-title">Forward message</h2>
+        <p>Select a chat or group to forward this message to.</p>
+        <div id="forward-chat-list" class="people-search-results"></div>
+      </section>
+    </div>
+
+    <div id="edit-message-dialog" class="dialog-backdrop" hidden>
+      <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="edit-message-title">
+        <button class="dialog-close" type="button" data-close-dialog="edit-message-dialog" aria-label="Close">×</button>
+        <h2 id="edit-message-title">Edit message</h2>
+        <form id="edit-message-form" class="feature-form">
+          <label>Message<textarea name="body" rows="4" maxlength="4000" required></textarea></label>
+          <button class="primary-button" type="submit">Save changes</button>
+        </form>
+      </section>
+    </div>
+
+    <div id="message-context" class="message-context" hidden role="dialog" aria-label="Message actions"></div>
+    <input id="chat-media-input" type="file" accept="image/*,video/mp4,video/webm,audio/*,application/pdf" hidden />
+
+    <div id="group-create-dialog" class="dialog-backdrop" hidden>
+      <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="group-create-title">
+        <button class="dialog-close" type="button" data-close-dialog="group-create-dialog" aria-label="Close">×</button>
+        <h2 id="group-create-title">Create a group</h2>
+        <p>Name your group, then select people to bring in.</p>
+        <form id="group-create-form" class="feature-form">
+          <label>Group name
+            <input name="title" maxlength="80" minlength="2" required placeholder="Weekend plans" />
+          </label>
+          <label>Find people
+            <input id="group-member-search" type="search" autocomplete="off" minlength="2" placeholder="Search by name or username" />
+          </label>
+          <div id="group-member-results" class="people-search-results" aria-live="polite"></div>
+          <div id="group-selected-members" class="selected-members"></div>
+          <button class="primary-button" type="submit">Create group</button>
+        </form>
+        <p id="group-create-status" class="form-status" role="status" aria-live="polite"></p>
+      </section>
+    </div>
+
+    <div id="group-details-dialog" class="dialog-backdrop" hidden>
+      <section class="dialog group-details-dialog" role="dialog" aria-modal="true" aria-labelledby="group-details-title">
+        <button class="dialog-close" type="button" data-close-dialog="group-details-dialog" aria-label="Close">×</button>
+        <h2 id="group-details-title">Group details</h2>
+        <div id="group-details-content"></div>
+      </section>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="/src/live-app.mjs"></script>
+  </body>
+</html>

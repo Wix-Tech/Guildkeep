@@ -1,0 +1,29 @@
+{
+  "name": "Guildkeep — Search and admin for group chat",
+  "short_name": "Guildkeep",
+  "description": "Hybrid search across your group chat archive, plus bot commands for admins: lock, open, status, add, kick, warn, undo.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#050505",
+  "theme_color": "#050505",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

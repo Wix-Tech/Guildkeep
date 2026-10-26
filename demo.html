@@ -1,0 +1,1900 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ember — messages</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #080808;
+  --panel: #11100f;
+  --panel-2: #1b1714;
+  --line: #30251f;
+  --text: #f4eee9;
+  --muted: #a99a90;
+  --green: #d66a2c;
+  --green-deep: #6f3218;
+  --accent: #e47a43;
+  --mark: #ffb27a;
+  --bubble-in: #211b17;
+  --bubble-out: #633116;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(900px 520px at 50% -20%, rgba(117, 54, 24, 0.2), transparent 72%),
+    var(--bg);
+  color: var(--text);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+button, input { font: inherit; }
+button { color: inherit; }
+
+.app-shell {
+  width: min(1440px, 100%);
+  height: min(860px, calc(100vh - 48px));
+  min-height: 580px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.62);
+}
+
+.app-topbar {
+  height: 64px;
+  flex: 0 0 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 22px;
+  background: #0e0d0c;
+  border-bottom: 1px solid var(--line);
+}
+
+.brand, .topbar-profile, .sidebar-heading, .conversation-head,
+.searchbar, .searchbar label, .section-head, .message-meta {
+  display: flex;
+  align-items: center;
+}
+
+.brand { gap: 11px; min-width: 0; }
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  color: #160c07;
+  background: var(--accent);
+  border-radius: 12px;
+}
+.brand-mark svg { width: 21px; height: 21px; }
+.brand-copy { display: grid; line-height: 1.15; }
+.brand-copy strong { font-size: 14px; letter-spacing: 0.04em; }
+.brand-copy span { color: var(--muted); font-size: 11px; margin-top: 4px; }
+.topbar-profile { gap: 10px; color: var(--muted); font-size: 12px; }
+.profile-avatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: #ffe0c9;
+  background: #58301e;
+  font-weight: 700;
+}
+
+.chat-layout {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(300px, 370px) minmax(0, 1fr);
+}
+
+.chat-sidebar {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+  background: #100f0e;
+}
+
+.sidebar-heading {
+  justify-content: space-between;
+  padding: 19px 20px 12px;
+}
+.sidebar-heading h1 { margin: 0; font-size: 21px; letter-spacing: -0.03em; }
+.online-label { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11px; }
+.online-dot { width: 7px; height: 7px; border-radius: 50%; background: #d98252; box-shadow: 0 0 10px rgba(217, 130, 82, 0.45); }
+
+.searchbar { gap: 10px; padding: 4px 16px 12px; }
+.searchbar label {
+  flex: 1;
+  min-width: 0;
+  gap: 9px;
+  height: 42px;
+  padding: 0 13px;
+  color: var(--muted);
+  background: #1a1715;
+  border: 1px solid #29211c;
+  border-radius: 11px;
+  transition: border-color 0.16s, background 0.16s;
+}
+.searchbar label:focus-within { border-color: var(--accent); background: #201914; }
+.search-icon { width: 17px; height: 17px; flex: 0 0 auto; }
+.searchbar input {
+  width: 100%;
+  min-width: 0;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font-size: 13px;
+}
+.searchbar input::placeholder { color: #8f8178; }
+.spinner {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.chips { display: flex; gap: 7px; padding: 0 16px 13px; flex-wrap: wrap; }
+.chip {
+  padding: 5px 11px;
+  color: #b9aaa0;
+  background: #171412;
+  border: 1px solid #332820;
+  border-radius: 999px;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: 0.15s ease;
+}
+.chip:hover { color: var(--text); border-color: #85502f; }
+.chip.active {
+  color: #ffc092;
+  background: rgba(214, 106, 44, 0.16);
+  border-color: rgba(214, 106, 44, 0.55);
+}
+.chip.ghost { background: #1c1713; }
+
+.chat-list {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  border-top: 1px solid #28201b;
+  scrollbar-color: #493326 transparent;
+  scrollbar-width: thin;
+}
+#results { padding-bottom: 8px; }
+
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 73px;
+  padding: 11px 16px;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgba(48, 37, 31, 0.68);
+  cursor: pointer;
+  font: inherit;
+  transition: background 0.15s ease;
+}
+.row:hover, .row[aria-pressed="true"] { background: #1b1613; }
+.row[aria-pressed="true"]::before {
+  position: absolute;
+  inset: 12px auto 12px 0;
+  width: 3px;
+  content: "";
+  background: var(--accent);
+  border-radius: 0 3px 3px 0;
+}
+.avatar {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  color: #fff2e7;
+  background: hsl(var(--hue, 24) 35% 34%);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 650;
+}
+.row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.row-title { overflow: hidden; color: #f3ece6; font-size: 13px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.row-time { color: #a88f7f; font-size: 10.5px; flex: 0 0 auto; }
+.row-sub {
+  overflow: hidden;
+  color: #a99a90;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+mark { color: #ffb27a; background: transparent; font-weight: 700; }
+
+.badge {
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  color: #ffbe94;
+  background: rgba(214, 106, 44, 0.16);
+  border: 1px solid rgba(214, 106, 44, 0.22);
+  border-radius: 6px;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.badge.semantic { color: #ffca9f; }
+.badge.fuzzy { color: #e8a276; }
+
+.section-head {
+  gap: 7px;
+  padding: 12px 16px 6px;
+  color: #a68772;
+  background: #14110f;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+#more {
+  display: block;
+  width: 100%;
+  padding: 13px;
+  color: #f2a06e;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+  font-size: 12px;
+}
+#more:hover { background: #1c1713; }
+#more[hidden], #debug[hidden] { display: none; }
+
+#empty { padding: 18px 17px 22px; }
+.empty-title { margin-bottom: 12px; color: #e6d9d0; font-size: 12px; font-weight: 600; }
+.chips.recent { gap: 6px; padding: 0 0 13px; }
+.hint { margin: 0; color: #9e9188; font-size: 11px; line-height: 1.8; }
+.hint code { padding: 2px 5px; color: #f4b185; background: #211914; border-radius: 4px; font-size: 10.5px; }
+
+#debug {
+  display: grid;
+  gap: 4px;
+  padding: 10px 14px;
+  color: var(--muted);
+  background: #0d0c0b;
+  border-top: 1px solid var(--line);
+  font-size: 10px;
+}
+.dbg-k { display: inline-block; min-width: 60px; color: #8b6f5d; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
+#debug code { color: #e8ac83; }
+#debug b { color: var(--text); }
+
+.conversation {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: #0d0c0b;
+  background-image: radial-gradient(rgba(217, 126, 72, 0.06) 0.7px, transparent 0.7px);
+  background-size: 18px 18px;
+}
+.conversation-view { min-height: 0; flex: 1; display: flex; flex-direction: column; }
+.welcome {
+  width: min(440px, calc(100% - 40px));
+  margin: auto;
+  padding: 36px 18px;
+  text-align: center;
+}
+.welcome-icon {
+  width: 76px;
+  height: 76px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 23px;
+  color: #f4a06b;
+  background: rgba(214, 106, 44, 0.12);
+  border: 1px solid rgba(214, 106, 44, 0.22);
+  border-radius: 26px;
+}
+.welcome-icon svg { width: 34px; height: 34px; }
+.welcome h2 { margin: 0; color: #f1e8e1; font-size: 22px; letter-spacing: -0.03em; }
+.welcome > p { max-width: 360px; margin: 10px auto 22px; color: #a89b92; font-size: 13px; }
+.welcome-features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; text-align: left; }
+.welcome-feature {
+  min-height: 81px;
+  padding: 12px;
+  color: #b5a69b;
+  background: rgba(27, 23, 20, 0.88);
+  border: 1px solid rgba(72, 53, 42, 0.72);
+  border-radius: 12px;
+  font-size: 10.5px;
+}
+.welcome-feature strong { display: block; margin-bottom: 5px; color: #f0b28b; font-size: 11px; }
+.keyboard-hint { margin-top: 21px; color: #7f736b; font-size: 10px; }
+.keyboard-hint kbd { padding: 3px 6px; color: #c7b5a8; background: #1d1916; border: 1px solid #3a2d25; border-radius: 5px; font: inherit; }
+
+.conversation-head {
+  flex: 0 0 66px;
+  gap: 12px;
+  padding: 0 22px;
+  background: rgba(17, 16, 15, 0.96);
+  border-bottom: 1px solid var(--line);
+}
+.conversation-back { display: none; }
+.conversation-title { min-width: 0; display: grid; gap: 2px; }
+.conversation-title strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-title span { color: #a2958c; font-size: 10.5px; }
+.conversation-body { min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 9px; overflow-y: auto; padding: 24px clamp(18px, 6vw, 86px); }
+.day-label { align-self: center; margin: 4px 0 10px; padding: 5px 11px; color: #bfa18c; background: rgba(37, 30, 25, 0.9); border: 1px solid #392a20; border-radius: 999px; font-size: 10px; }
+.message {
+  max-width: min(76%, 560px);
+  align-self: flex-start;
+  padding: 9px 12px 6px;
+  color: #efe6de;
+  background: var(--bubble-in);
+  border: 1px solid rgba(255, 255, 255, 0.035);
+  border-radius: 4px 13px 13px 13px;
+  box-shadow: 0 3px 9px rgba(0, 0, 0, 0.12);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.message.outgoing { align-self: flex-end; background: var(--bubble-out); border-radius: 13px 4px 13px 13px; }
+.message.match { outline: 1px solid var(--accent); box-shadow: 0 0 0 3px rgba(214, 106, 44, 0.1); }
+.message-sender { display: block; margin-bottom: 3px; color: #edaa7e; font-size: 10px; font-weight: 650; }
+.message-meta { justify-content: flex-end; gap: 4px; margin-top: 4px; color: #b69b87; font-size: 9px; }
+.conversation-note { padding: 11px 16px; color: #96877d; background: rgba(17, 16, 15, 0.95); border-top: 1px solid var(--line); text-align: center; font-size: 10px; }
+.contact-card { width: min(380px, 100%); align-self: center; margin: auto; padding: 26px; background: #191512; border: 1px solid #3a2a20; border-radius: 16px; text-align: center; }
+.contact-card .avatar { width: 66px; height: 66px; margin: 0 auto 14px; font-size: 18px; }
+.contact-card h2 { margin: 0 0 5px; font-size: 17px; }
+.contact-card p { color: var(--muted); font-size: 12px; }
+.loading { padding: 25px 16px; color: var(--muted); text-align: center; font-size: 12px; }
+
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  z-index: 5;
+  transform: translate(-50%, 16px);
+  padding: 9px 15px;
+  color: var(--text);
+  background: #28201b;
+  border: 1px solid #4b3427;
+  border-radius: 999px;
+  font-size: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: 0.2s ease;
+}
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+:focus-visible { outline: 2px solid #ed8c53; outline-offset: 2px; }
+
+@media (max-width: 760px) {
+  body { display: block; padding: 0; }
+  .app-shell { width: 100%; height: 100dvh; min-height: 0; border: 0; border-radius: 0; }
+  .app-topbar { height: 58px; flex-basis: 58px; padding: 0 15px; }
+  .chat-layout { grid-template-columns: minmax(0, 1fr); }
+  .chat-sidebar { border-right: 0; }
+  .conversation { display: none; }
+  .conversation.is-open { display: flex; position: absolute; inset: 58px 0 0; z-index: 2; }
+  .conversation-head { gap: 9px; padding: 0 13px; }
+  .conversation-back {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    color: var(--text);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    cursor: pointer;
+  }
+  .conversation-back svg { width: 17px; height: 17px; }
+  .welcome { padding: 24px 8px; }
+  .welcome-features { grid-template-columns: 1fr; }
+  .welcome-feature { min-height: auto; }
+}
+
+@media (max-width: 420px) {
+  .topbar-profile > span:first-child { display: none; }
+  .sidebar-heading { padding: 16px 16px 10px; }
+  .row { padding-right: 12px; padding-left: 12px; }
+  .conversation-body { padding: 18px 12px; }
+  .message { max-width: 88%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+</style>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20.5 11.5a8.5 8.5 0 0 1-12.7 7.4L3 20l1.1-4.2A8.5 8.5 0 1 1 20.5 11.5Z" />
+            <path d="M8 11.5h.01M12 11.5h.01M16 11.5h.01" />
+          </svg>
+        </span>
+        <span class="brand-copy"><strong>EMBER</strong><span>Messages</span></span>
+      </div>
+      <div class="topbar-profile"><span>Personal workspace</span><span class="profile-avatar">M</span></div>
+    </header>
+
+    <main class="chat-layout">
+      <aside class="chat-sidebar" aria-label="Chats and search">
+        <div class="sidebar-heading">
+          <h1>Chats</h1>
+          <span class="online-label"><span class="online-dot"></span> All conversations</span>
+        </div>
+      <div class="searchbar">
+        <label for="q">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" />
+          </svg>
+          <input id="q" type="search" placeholder="Search messages, contacts and groups"
+               autocomplete="off" spellcheck="false" aria-label="Search" />
+        </label>
+        <div id="spinner" class="spinner" hidden aria-label="Searching"></div>
+      </div>
+
+      <div class="chips">
+        <button class="chip active" data-filter="all">All</button>
+        <button class="chip" data-filter="messages">Messages</button>
+        <button class="chip" data-filter="contacts">Contacts</button>
+        <button class="chip" data-filter="groups">Groups</button>
+        <button class="chip" data-filter="business">Business</button>
+      </div>
+
+      <div class="chat-list">
+        <div id="empty"></div>
+        <div id="results"></div>
+        <button id="more" hidden>Load more</button>
+      </div>
+      <div id="debug" hidden></div>
+      </aside>
+
+      <section class="conversation" id="conversation" aria-label="Conversation preview">
+        <div id="conversation-content" class="welcome">
+          <div class="welcome-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20.5 11.5a8.5 8.5 0 0 1-12.7 7.4L3 20l1.1-4.2A8.5 8.5 0 1 1 20.5 11.5Z" />
+              <path d="M8 11.5h.01M12 11.5h.01M16 11.5h.01" />
+            </svg>
+          </div>
+          <h2>Stay close to every conversation</h2>
+          <p>Search across your messages, people, and groups. Choose a result to open its conversation preview.</p>
+          <div class="welcome-features">
+            <div class="welcome-feature"><strong>Find it fast</strong>Search across messages and chats.</div>
+            <div class="welcome-feature"><strong>Search smarter</strong>Find typos and related phrases.</div>
+            <div class="welcome-feature"><strong>Pick up anytime</strong>Your recent searches are ready.</div>
+          </div>
+          <div class="keyboard-hint">Quick search <kbd>/</kbd></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast"></div>
+
+<script type="module">
+/* ---- search-engine.mjs ---- */
+/**
+ * search-engine.mjs — a WhatsApp-style hybrid search engine in dependency-free JS.
+ *
+ * This is a faithful port of the architecture recovered from WhatsApp Android
+ * 2.26.41.77 (see ../EVIDENCE.md). The pieces map 1:1:
+ *
+ *   WhatsApp (Kotlin/SQLite FTS4)            this module
+ *   ---------------------------------------  ------------------------------------
+ *   FtsMessageStoreBase.A0K / A0J / A05      normalize() / compileQuery()
+ *   content:tok1 content:tok2* (implicit AND,  compileQuery()
+ *     prefix wildcard on the final token)
+ *   "quoted phrase"                          phrase terms (adjacency scored)
+ *   fts_namespace: / -namespace filters      namespaces + negation
+ *   message_ftsv2 (FTS4) + available_        inverted index with positions
+ *     message_view join
+ *   wa_contacts_fts_bigrams (Fts4 bigrams)   bigramIndex / fuzzyCandidates()
+ *   SemanticSearchManager kNN + distance     semanticCandidates() (hashed
+ *     threshold + has/and/counts merge         embeddings + cosine + threshold)
+ *   PaginationStrategyStaggered              paginate() / staggeredInterleave()
+ *   EngineState.hasMorePages                 nextCursor
+ *   SearchPerformanceLogger (marker spans)   timings + debug counters
+ *
+ * Everything is deterministic: no randomness, no network, no deps.
+ */
+
+/* ------------------------------------------------------------------ */
+/* 1. Normalisation + tokenisation                                     */
+/* ------------------------------------------------------------------ */
+
+const DIACRITICS = /[\u0300-\u036f]/g;
+const PUNCT = /[^\p{L}\p{N}#@+']+/gu;
+const MAX_QUERY = 4096; // WhatsApp: FtsMessageStoreBase.A09 bails >= 4096 chars
+
+/** Lower-case, strip diacritics and unify punctuation. Mirrors A0K(). */
+export function normalize(text) {
+  return String(text ?? '')
+    .normalize('NFD')
+    .replace(DIACRITICS, '')
+    .toLowerCase()
+    .replace(/[\u2018\u2019\u02bc]/g, "'")
+    .replace(PUNCT, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Tokenise to words, keeping #tags and @mentions intact. */
+export function tokenize(text) {
+  const n = normalize(text);
+  return n ? n.split(' ') : [];
+}
+
+/** Character bigrams of a word — the trick behind WhatsApp's fuzzy contacts. */
+export function bigrams(word) {
+  const w = `#${normalize(word)}#`;
+  const out = [];
+  for (let i = 0; i < w.length - 1; i += 1) out.push(w.slice(i, i + 2));
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* 2. Query compilation                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Compile a user query string into a structured query object.
+ *
+ * Mirrors FtsMessageStoreBase:
+ *   A0J()  — quoted input stays a phrase, everything else gets a trailing `*`
+ *   A05()  — tokens joined by space (implicit AND), `*` appended to the last
+ *   A0G()  — namespace clauses appended, `-ns` means NOT
+ *
+ * Supported syntax (a superset of what the user sees in the UI):
+ *   foo bar        implicit AND, prefix on the last token (as-you-type)
+ *   "foo bar"      exact phrase
+ *   foo OR bar     alternatives
+ *   -foo           negated term
+ *   from:ana       field filter (from:/in:/is:/has:)
+ */
+export function compileQuery(input) {
+  const raw = String(input ?? '');
+  const safe = raw.length > MAX_QUERY ? raw.slice(0, MAX_QUERY) : raw;
+
+  const phrases = [];
+  let rest = safe.replace(/"([^"]*)"/g, (_, phrase) => {
+    const p = normalize(phrase);
+    if (p) phrases.push(p.split(' '));
+    return ' ';
+  });
+
+  const positives = [];
+  const negatives = [];
+  const filters = {};
+
+  for (const rawToken of rest.split(/\s+/).filter(Boolean)) {
+    const negated = rawToken.startsWith('-') && rawToken.length > 1;
+    const token = negated ? rawToken.slice(1) : rawToken;
+
+    const field = /^(from|in|is|has):(.+)$/i.exec(token);
+    if (field) {
+      filters[field[1].toLowerCase()] = normalize(field[2]);
+      continue;
+    }
+    if (/^or$/i.test(token)) continue; // OR is implicit between clauses
+
+    const words = tokenize(token);
+    for (const word of words) (negated ? negatives : positives).push(word);
+  }
+
+  // WhatsApp appends `*` to the final token only: `content:a content:b*`
+  // A query is a prefix query when it is a single bare token.
+  const lastTokenPrefix = positives.length > 0;
+
+  return {
+    raw: safe,
+    terms: positives,
+    negatedTerms: negatives,
+    phrases,
+    filters,
+    lastTokenPrefix,
+    isEmpty:
+      positives.length === 0 && phrases.length === 0 && negatives.length === 0,
+    /** Human-readable rendering of the compiled expression, for the debug pane. */
+    toFtsString() {
+      const parts = [];
+      positives.forEach((t, i) => {
+        parts.push(`content:${t}${i === positives.length - 1 && lastTokenPrefix ? '*' : ''}`);
+      });
+      for (const p of phrases) parts.push(`content:"${p.join(' ')}"`);
+      for (const t of negatives) parts.push(`-content:${t}`);
+      for (const [k, v] of Object.entries(filters)) parts.push(`${k}:${v}`);
+      return parts.join(' ');
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* 3. Inverted index                                                   */
+/* ------------------------------------------------------------------ */
+
+const FIELD_WEIGHTS = {
+  // Mirrors the relative importance of the columns WhatsApp indexes.
+  contactName: 6,
+  chatName: 4,
+  senderName: 3,
+  text: 1,
+  chatKind: 0.5,
+};
+
+/**
+ * Build an index over documents.
+ *
+ * A document is either a `message` or a `contact`. Both are stored with
+ * position lists so phrase and proximity scoring are possible.
+ */
+export function buildIndex({ messages = [], contacts = [], chats = [] } = {}) {
+  const chatById = new Map(chats.map((c) => [c.id, c]));
+  const contactById = new Map(contacts.map((c) => [c.id, c]));
+
+  const docs = [];
+  const postings = new Map(); // token -> Map(docId -> [{field, pos}])
+  const bigramPostings = new Map(); // bigram -> Set(docId) (contacts only)
+  const docLengths = new Map();
+
+  const addPosting = (token, docId, field, pos) => {
+    let byDoc = postings.get(token);
+    if (!byDoc) postings.set(token, (byDoc = new Map()));
+    let list = byDoc.get(docId);
+    if (!list) byDoc.set(docId, (list = []));
+    list.push({ field, pos });
+  };
+
+  const indexDoc = (doc) => {
+    let len = 0;
+    for (const [field, value] of Object.entries(doc.fields)) {
+      if (!value) continue;
+      const tokens = tokenize(value);
+      tokens.forEach((token, pos) => {
+        len += 1;
+        addPosting(token, doc.id, field, pos);
+      });
+    }
+    docLengths.set(doc.id, len);
+  };
+
+  // ---- messages -----------------------------------------------------
+  for (const m of messages) {
+    const chat = chatById.get(m.chatId);
+    const sender = contactById.get(m.senderId);
+    const doc = {
+      id: `msg:${m.id}`,
+      kind: 'message',
+      raw: m,
+      chatId: m.chatId,
+      namespace: chat?.kind === 'channel' ? 'newsletter' : 'chat',
+      fields: {
+        text: m.text,
+        senderName: chat?.kind === 'group' ? sender?.name : undefined,
+        chatName: m.text ? undefined : undefined,
+      },
+      timestamp: m.timestamp,
+      chat,
+      sender,
+    };
+    docs.push(doc);
+    indexDoc(doc);
+  }
+
+  // ---- contacts -----------------------------------------------------
+  for (const c of contacts) {
+    const doc = {
+      id: `contact:${c.id}`,
+      kind: 'contact',
+      raw: c,
+      namespace: c.kind === 'business' ? 'business' : 'contact',
+      fields: {
+        contactName: c.name,
+        text: [c.about, c.phone, ...(c.tags ?? [])].filter(Boolean).join(' '),
+        chatKind: c.kind,
+      },
+      timestamp: c.lastActiveAt ?? 0,
+      contact: c,
+    };
+    docs.push(doc);
+    indexDoc(doc);
+
+    // bigram index for fuzzy contact lookup (wa_contacts_fts_bigrams)
+    const seen = new Set();
+    for (const word of tokenize(`${c.name} ${(c.tags ?? []).join(' ')}`)) {
+      for (const bg of bigrams(word)) {
+        if (seen.has(bg)) continue;
+        seen.add(bg);
+        let set = bigramPostings.get(bg);
+        if (!set) bigramPostings.set(bg, (set = new Set()));
+        set.add(doc.id);
+      }
+    }
+  }
+
+  // ---- semantic layer ----------------------------------------------
+  // Stand-in for WhatsApp's on-device embedding model: a deterministic hashed
+  // bag-of-words vector. Same interface (kNN + distance threshold), no model.
+  const vectors = new Map();
+  for (const doc of docs) {
+    const text = Object.values(doc.fields).filter(Boolean).join(' ');
+    vectors.set(doc.id, embed(text));
+  }
+
+  return {
+    docs,
+    chatById,
+    contactById,
+    postings,
+    bigramPostings,
+    docLengths,
+    vectors,
+    avgDocLength:
+      docs.reduce((sum, d) => sum + (docLengths.get(d.id) ?? 0), 0) /
+      Math.max(1, docs.length),
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* 4. Dense (semantic) vectors                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Character n-gram embedding.
+ *
+ * WhatsApp ships a real on-device embedding model behind SemanticSearchManager.
+ * We cannot, so this module uses the standard dependency-free stand-in:
+ * a hashed vector of word identities plus the character trigrams of every word
+ * ("rebuilt" ~ "rebuild", "indexing" ~ "index"). Same interface as the real
+ * thing — cosine distance, a kNN scan, and an explicit distance threshold —
+ * and it degrades predictably: it finds morphological and spelling neighbours,
+ * not true synonyms.
+ */
+const DIMS = 2048;
+const TRIGRAM_WEIGHT = 0.45;
+
+function hash32(str, seed = 0x811c9dc5) {
+  let h = seed;
+  for (let i = 0; i < str.length; i += 1) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+function trigrams(word) {
+  const w = `#${word}#`;
+  const out = [];
+  for (let i = 0; i < w.length - 2; i += 1) out.push(w.slice(i, i + 3));
+  return out;
+}
+
+/** Deterministic hashed char-ngram vector (raw counts, not normalised). */
+export function embed(text) {
+  const v = new Float32Array(DIMS);
+  // Presence (not term frequency) + big-dimension hashing keeps accidental
+  // collisions from dominating the similarity of short queries.
+  for (const token of tokenize(text)) {
+    v[hash32(token) % DIMS] = 1;
+    for (const tri of trigrams(token)) {
+      const i = hash32(tri, 0x9e3779b9) % DIMS;
+      if (v[i] < TRIGRAM_WEIGHT) v[i] = TRIGRAM_WEIGHT;
+    }
+  }
+  return v;
+}
+
+export function cosine(a, b) {
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  return dot / (Math.sqrt(na) * Math.sqrt(nb) || 1);
+}
+
+/**
+ * Query coverage: how much of the query's vector mass the document explains.
+ * Unlike cosine it does not punish a document for being long — which is what
+ * you want when the query is two words and the document is a sentence.
+ * Returns 0..1; `distance = 1 - coverage` feeds the kNN threshold.
+ */
+export function coverage(q, d) {
+  let covered = 0;
+  let total = 0;
+  for (let i = 0; i < q.length; i += 1) {
+    total += q[i];
+    covered += Math.min(q[i], d[i]);
+  }
+  return total === 0 ? 0 : covered / total;
+}
+
+/* ------------------------------------------------------------------ */
+/* 5. Retrieval                                                        */
+/* ------------------------------------------------------------------ */
+
+const K1 = 1.2; // BM25 term-frequency saturation
+const B = 0.6; // BM25 length normalisation
+
+const KIND_TO_SECTION = {
+  message: 'messages',
+  contact: 'contacts',
+};
+
+function sectionFor(doc, filters) {
+  if (doc.kind === 'contact') {
+    if (doc.raw.kind === 'business') return filters.business ? 'business' : null;
+    if (doc.raw.kind === 'group') return filters.groups ? 'groups' : null;
+    return filters.contacts ? 'contacts' : null;
+  }
+  return filters.messages ? 'messages' : null;
+}
+
+/** Exact + prefix term scoring (the FTS4 half of the hybrid). */
+function scoreTerm(index, doc, term, { prefix, fieldWeights }) {
+  const byDoc = index.postings.get(term);
+  let base = 0;
+  let hit = false;
+
+  if (byDoc && byDoc.has(doc.id)) {
+    hit = true;
+    const list = byDoc.get(doc.id);
+    const tf = list.length;
+    const dl = index.docLengths.get(doc.id) || 1;
+    const fieldBoost = Math.max(
+      ...list.map((p) => fieldWeights[p.field] ?? 1),
+    );
+    base +=
+      fieldBoost *
+      ((tf * (K1 + 1)) / (tf + K1 * (1 - B + (B * dl) / index.avgDocLength)));
+  }
+
+  if (prefix) {
+    // `content:term*` — walk the vocabulary for completions of the term.
+    let extra = 0;
+    for (const [token, postByDoc] of index.postings) {
+      if (token === term || !token.startsWith(term)) continue;
+      const list = postByDoc.get(doc.id);
+      if (!list) continue;
+      hit = true;
+      extra += 0.55 * Math.max(...list.map((p) => fieldWeights[p.field] ?? 1));
+    }
+    base += extra;
+  }
+
+  return hit ? base : 0;
+}
+
+function positionsOf(index, doc, term, field) {
+  const byDoc = index.postings.get(term);
+  const list = byDoc?.get(doc.id) ?? [];
+  return list.filter((p) => !field || p.field === field).map((p) => p.pos);
+}
+
+/** Adjacency bonus for `"quoted phrases"`. */
+function phraseScore(index, doc, phraseWords, fieldWeights) {
+  if (phraseWords.length === 0) return 0;
+  const [first, ...more] = phraseWords;
+  const field = Object.keys(fieldWeights)[0];
+  const starts = positionsOf(index, doc, first, null);
+  if (starts.length === 0) return 0;
+
+  let hits = 0;
+  for (const p of starts) {
+    let ok = true;
+    for (let i = 0; i < more.length; i += 1) {
+      const next = positionsOf(index, doc, more[i], null);
+      if (!next.includes(p + i + 1)) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) hits += 1;
+  }
+  return hits > 0 ? 3 + hits * 0.5 : 0;
+}
+
+function diceCoefficient(a, b) {
+  const A = new Set(bigrams(a));
+  const B = new Set(bigrams(b));
+  if (A.size === 0 || B.size === 0) return 0;
+  let shared = 0;
+  for (const bg of A) if (B.has(bg)) shared += 1;
+  return (2 * shared) / (A.size + B.size);
+}
+
+/**
+ * Fuzzy contact lookup over the bigram index — the `wa_contacts_fts_bigrams`
+ * half. WhatsApp only runs this for contacts, only for words long enough to
+ * make bigrams meaningful, and only when the user is looking at people.
+ *
+ * Returns [{docId, word, similarity}] with similarity >= threshold.
+ */
+function bigramCandidates(index, word, { threshold = 0.6, limit = 25 } = {}) {
+  if (word.length < 4) return [];
+
+  // candidate docs = anything sharing at least one bigram with the word
+  const candidates = new Set();
+  for (const bg of new Set(bigrams(word))) {
+    const docs = index.bigramPostings.get(bg);
+    if (!docs) continue;
+    for (const id of docs) candidates.add(id);
+  }
+
+  const out = [];
+  for (const docId of candidates) {
+    const doc = index.docs.find((d) => d.id === docId);
+    if (!doc || doc.kind !== 'contact') continue;
+    let best = 0;
+    let bestWord = '';
+    for (const candidateWord of tokenize(doc.fields.contactName ?? '')) {
+      const similarity = diceCoefficient(word, candidateWord);
+      if (similarity > best) {
+        best = similarity;
+        bestWord = candidateWord;
+      }
+    }
+    if (best >= threshold) out.push({ docId, word: bestWord, similarity: best });
+  }
+
+  return out.sort((a, b) => b.similarity - a.similarity).slice(0, limit);
+}
+
+/* ------------------------------------------------------------------ */
+/* 6. The search entry point                                           */
+/* ------------------------------------------------------------------ */
+
+export const DEFAULT_PAGE_SIZE = 20;
+
+/**
+ * search() — one page of results, in the shape WhatsApp's SearchFragment
+ * consumes: one section per search engine, plus "has more pages".
+ *
+ * @param {object} index      result of buildIndex()
+ * @param {object} options
+ * @param {string} options.query
+ * @param {object} [options.filters]   {messages, contacts, groups, business}
+ * @param {string} [options.chatId]    scope to one conversation (fts_jid:)
+ * @param {number} [options.page]
+ * @param {number} [options.pageSize]
+ * @param {boolean} [options.fuzzy]    allow bigram contact fallback
+ * @param {boolean} [options.semantic] allow the kNN layer
+ * @param {number} [options.distanceThreshold]  cosine-style distance, 1 - coverage
+ * @param {number} [options.now]       injectable clock for recency scoring
+ */
+export function search(index, options = {}) {
+  const started = nowMs();
+  const {
+    query = '',
+    filters: rawFilters = {},
+    chatId = null,
+    page = 0,
+    pageSize = DEFAULT_PAGE_SIZE,
+    fuzzy = true,
+    semantic = true,
+    distanceThreshold = 0.55,
+    now = Date.now(),
+  } = options;
+
+  const filters = {
+    messages: rawFilters.messages ?? true,
+    contacts: rawFilters.contacts ?? true,
+    groups: rawFilters.groups ?? true,
+    business: rawFilters.business ?? true,
+  };
+
+  const compiled = compileQuery(query);
+  if (compiled.isEmpty) {
+    return emptyResult(started, compiled);
+  }
+
+  const scored = new Map(); // docId -> {doc, score, reasons, semanticOnly}
+
+  const bump = (doc, score, reason, semanticOnly = false) => {
+    const entry = scored.get(doc.id) ?? {
+      doc,
+      score: 0,
+      reasons: [],
+      semanticOnly,
+    };
+    entry.score += score;
+    if (reason) entry.reasons.push(reason);
+    if (!semanticOnly) entry.semanticOnly = false;
+    scored.set(doc.id, entry);
+  };
+
+  const fieldWeights =
+    compiled.filters.is === 'message' ? { text: 7, senderName: 2 } : FIELD_WEIGHTS;
+
+  // A negated term removes the document from every layer, not just FTS.
+  const blocked = new Set();
+  for (const bad of compiled.negatedTerms) {
+    const byDoc = index.postings.get(bad);
+    if (!byDoc) continue;
+    for (const docId of byDoc.keys()) blocked.add(docId);
+  }
+  const isBlocked = (doc) => blocked.has(doc.id);
+
+  // --- 6a. FTS half -------------------------------------------------
+  let ftsHits = 0;
+  for (const doc of index.docs) {
+    if (!sectionFor(doc, filters)) continue;
+    if (chatId && doc.chatId !== chatId) continue;
+    if (compiled.filters.in && doc.chatId !== compiled.filters.in) continue;
+    if (compiled.filters.from) {
+      const wanted = compiled.filters.from;
+      const senderName = normalize(doc.sender?.name ?? '');
+      const matches = doc.senderId === wanted || senderName.includes(wanted);
+      if (!matches) continue;
+    }
+
+    let score = 0;
+    const terms = compiled.terms;
+    terms.forEach((term, i) => {
+      const isLast = i === terms.length - 1;
+      const prefix = compiled.lastTokenPrefix && isLast;
+      score += scoreTerm(index, doc, term, { prefix, fieldWeights });
+    });
+
+    for (const phrase of compiled.phrases) {
+      score += phraseScore(index, doc, phrase, fieldWeights);
+    }
+
+    // every positive term must be present (implicit AND, like `content:a content:b`)
+    const allTermsPresent = terms.every((term) => {
+      const byDoc = index.postings.get(term);
+      if (byDoc?.has(doc.id)) return true;
+      if (!compiled.lastTokenPrefix) return false;
+      for (const [token, postByDoc] of index.postings) {
+        if (token.startsWith(term) && postByDoc.has(doc.id)) return true;
+      }
+      return false;
+    });
+    if (!allTermsPresent && compiled.phrases.length === 0) continue;
+
+    if (isBlocked(doc)) continue;
+
+    if (score > 0) {
+      ftsHits += 1;
+      bump(doc, score, 'fts');
+    }
+  }
+
+  // --- 6b. fuzzy half (wa_contacts_fts_bigrams) ---------------------
+  let fuzzyHits = 0;
+  if (fuzzy) {
+    const words = compiled.terms.filter((t) => t.length >= 4);
+    const seen = new Set();
+    for (const word of words) {
+      for (const candidate of bigramCandidates(index, word)) {
+        const doc = index.docs.find((d) => d.id === candidate.docId);
+        if (!doc || !sectionFor(doc, filters) || isBlocked(doc)) continue;
+        if (seen.has(doc.id) || scored.has(doc.id)) continue; // exact wins
+        seen.add(doc.id);
+        fuzzyHits += 1;
+        bump(doc, 2.2 * candidate.similarity, 'fuzzy');
+      }
+    }
+  }
+
+  // --- 6c. semantic half (kNN + distance threshold) -----------------
+  let semanticHits = 0;
+  if (semantic && compiled.raw.trim().length >= 3) {
+    const q = embed(compiled.raw);
+    for (const doc of index.docs) {
+      if (!sectionFor(doc, filters) || isBlocked(doc)) continue;
+      if (chatId && doc.chatId !== chatId) continue;
+      const vec = index.vectors.get(doc.id);
+      if (!vec) continue;
+      const similarity = coverage(q, vec);
+      const distance = 1 - similarity; // distance, as in the kNN threshold
+      if (distance > distanceThreshold) continue;
+      semanticHits += 1;
+      if (scored.has(doc.id)) {
+        bump(doc, 0.9 * similarity, 'semantic-boost');
+      } else {
+        bump(doc, 0.9 * similarity, 'semantic', true);
+      }
+    }
+  }
+
+  // --- 6d. ranking --------------------------------------------------
+  const results = [...scored.values()].map((entry) => {
+    const ageDays = Math.max(
+      0,
+      (now - (entry.doc.timestamp ?? 0)) / 86_400_000,
+    );
+    const recency = 1 / (1 + ageDays / 30); // 30-day half-life-ish
+    const pinnedBoost = entry.doc.chat?.pinned ? 0.25 : 0;
+    return {
+      id: entry.doc.id,
+      kind: entry.doc.kind,
+      section: sectionFor(entry.doc, filters),
+      doc: entry.doc.raw,
+      chat: entry.doc.chat,
+      score: entry.score + 0.75 * recency + pinnedBoost,
+      matchKind: entry.semanticOnly
+        ? 'semantic'
+        : entry.reasons.includes('fuzzy') && !entry.reasons.includes('fts')
+          ? 'fuzzy'
+          : 'fts',
+      reasons: entry.reasons,
+    };
+  });
+
+  results.sort((a, b) => b.score - a.score || b.doc.timestamp - a.doc.timestamp);
+
+  // --- 6e. staggered pagination ------------------------------------
+  // Sections are ordered by their best result, so a strong message hit still
+  // leads the page while the first page keeps one row of each kind.
+  const bySection = new Map();
+  for (const r of results) {
+    if (!bySection.has(r.section)) bySection.set(r.section, []);
+    bySection.get(r.section).push(r);
+  }
+  const sectionsOrder = [...bySection.keys()].sort(
+    (a, b) => bySection.get(b)[0].score - bySection.get(a)[0].score,
+  );
+
+  const pageItems = staggeredInterleave(bySection, sectionsOrder, page, pageSize);
+  const total = results.length;
+  const consumed = Math.min(total, (page + 1) * pageSize);
+
+  const elapsed = nowMs() - started;
+
+  return {
+    query: compiled.raw,
+    ftsQuery: compiled.toFtsString(),
+    sectionOrder: sectionsOrder,
+    items: pageItems,
+    sections: sectionsOrder
+      .map((key) => ({
+        key,
+        total: bySection.get(key).length,
+        items: pageItems.filter((i) => i.section === key),
+      }))
+      .filter((s) => s.total > 0),
+    total,
+    page,
+    pageSize,
+    nextCursor: consumed < total ? page + 1 : null,
+    debug: {
+      ftsCount: ftsHits,
+      fuzzyHits,
+      semanticHits,
+      fusedCount: results.length,
+      elapsedMs: Number(elapsed.toFixed(2)),
+    },
+  };
+}
+
+/**
+ * PaginationStrategyStaggered: take `pageSize` results but round-robin across
+ * the active sections so the first page always shows one of each kind instead
+ * of 20 messages followed by contacts.
+ */
+export function staggeredInterleave(bySection, order, page, pageSize) {
+  const active = order.filter((k) => (bySection.get(k)?.length ?? 0) > 0);
+  const taken = new Map(active.map((k) => [k, page * Math.ceil(pageSize / Math.max(1, active.length))]));
+  const out = [];
+  let guard = 0;
+  while (out.length < pageSize && guard < pageSize * active.length * 2) {
+    guard += 1;
+    let progressed = false;
+    for (const key of active) {
+      if (out.length >= pageSize) break;
+      const list = bySection.get(key);
+      const idx = taken.get(key);
+      if (idx < list.length) {
+        out.push(list[idx]);
+        taken.set(key, idx + 1);
+        progressed = true;
+      }
+    }
+    if (!progressed) break;
+  }
+  return out;
+}
+
+function emptyResult(started, compiled) {
+  return {
+    query: compiled.raw,
+    ftsQuery: '',
+    items: [],
+    sections: [],
+    total: 0,
+    page: 0,
+    pageSize: DEFAULT_PAGE_SIZE,
+    nextCursor: null,
+    debug: {
+      ftsCount: 0,
+      fuzzyHits: 0,
+      semanticHits: 0,
+      fusedCount: 0,
+      elapsedMs: Number((nowMs() - started).toFixed(2)),
+    },
+  };
+}
+
+function nowMs() {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
+}
+
+/* ------------------------------------------------------------------ */
+/* 7. Debounced, cancellable session — TokenizedSearchInput in JS      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A search session that behaves like WhatsApp's search bar:
+ *  - debounces keystrokes (default 250 ms)
+ *  - cancels the previous in-flight search (last write wins)
+ *  - caches results per (query, filters, page)
+ */
+export function createSearchSession(index, { debounceMs = 250, onResults, onStart } = {}) {
+  let timer = null;
+  let generation = 0;
+  const cache = new Map();
+
+  const keyOf = (q, filters, page, chatId) =>
+    JSON.stringify([normalize(q), filters, page, chatId]);
+
+  return {
+    /** Schedule a search; only the newest scheduled call ever delivers. */
+    update(query, { filters = {}, page = 0, chatId = null, immediate = false } = {}) {
+      clearTimeout(timer);
+      const myGeneration = (generation += 1);
+
+      const run = () => {
+        const key = keyOf(query, filters, page, chatId);
+        if (cache.has(key)) {
+          onResults?.(cache.get(key), { fromCache: true });
+          return;
+        }
+        onStart?.(query);
+        const result = search(index, { query, filters, page, chatId });
+        cache.set(key, result);
+        if (myGeneration === generation) onResults?.(result, { fromCache: false });
+      };
+
+      if (immediate) run();
+      else timer = setTimeout(run, debounceMs);
+    },
+    cancel() {
+      clearTimeout(timer);
+      generation += 1;
+    },
+    clearCache() {
+      cache.clear();
+    },
+  };
+}
+
+/* ---- corpus.mjs ---- */
+/**
+ * corpus.mjs — a small, deterministic, WhatsApp-shaped dataset for the demo.
+ *
+ * Shape mirrors the WhatsApp tables the search code joins against:
+ *   chats      ~ chat / available_message_view
+ *   contacts   ~ wa_contacts (+ wa_contacts_fts search rows)
+ *   messages   ~ message + message_ftsv2 (docid = sort_id)
+ *
+ * Replace this with your own loader: search-engine.mjs only needs
+ * { chats: [{id, name, kind, pinned?, avatarHue?}], contacts: [...], messages: [...] }.
+ */
+
+const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
+
+// Fixed clock so the demo is deterministic (recency scoring needs "now").
+export const DEMO_NOW = Date.UTC(2026, 9, 26, 17, 0, 0);
+
+const contact = (id, name, kind, extra = {}) => ({
+  id,
+  name,
+  kind, // 'person' | 'group' | 'business'
+  phone: extra.phone ?? `+234 80${(id.length * 37) % 10} ${100 + id.length * 7} ${2000 + id.length * 13}`,
+  about: extra.about ?? '',
+  tags: extra.tags ?? [],
+  lastActiveAt: extra.lastActiveAt ?? DEMO_NOW - 3 * DAY,
+});
+
+export const contacts = [
+  contact('c1', 'Ana Ribeiro', 'person', {
+    about: 'Product designer, Lisbon. Sends too many voice notes.',
+    tags: ['design', 'lisbon'],
+  }),
+  contact('c2', 'Adebayo Okafor', 'person', {
+    about: 'Backend engineer. Postgres and SQLite performance nerd.',
+    tags: ['engineering', 'lagos'],
+  }),
+  contact('c3', 'Priya Nair', 'person', {
+    about: 'Data scientist. Works on embeddings and vector search.',
+    tags: ['ml', 'embeddings', 'bangalore'],
+  }),
+  contact('c4', 'Tomás Silva', 'person', {
+    about: 'Photographer. Fujifilm X100V.',
+    tags: ['photography'],
+  }),
+  contact('c5', 'Chiamaka Eze', 'person', {
+    about: 'Lawyer, Abuja. Always on a call.',
+    tags: ['legal', 'abuja'],
+  }),
+  contact('c6', 'Lukas Meyer', 'person', {
+    about: 'iOS engineer in Berlin. Maintains the offline cache layer.',
+    tags: ['engineering', 'ios', 'berlin'],
+  }),
+  contact('c7', 'Sofia Marchetti', 'person', {
+    about: 'Runs the Naples bakery account.',
+    tags: ['bakery'],
+  }),
+  contact('c8', 'Kofi Mensah', 'person', {
+    about: 'Growth marketing. Spreadsheets and dashboards.',
+    tags: ['marketing', 'accra'],
+  }),
+  contact('c9', 'Chen Wei', 'person', {
+    about: 'Android platform engineer. FTS and SQLite migrations.',
+    tags: ['engineering', 'android', 'sqlite'],
+  }),
+  contact('c10', 'Nadia Haddad', 'person', {
+    about: 'PM, search & discovery.',
+    tags: ['product', 'search'],
+  }),
+
+  contact('g1', 'Design Guild', 'group', {
+    about: 'Design critique, every Thursday.',
+    tags: ['design', 'critique'],
+  }),
+  contact('g2', 'Backend Platform', 'group', {
+    about: 'On-call rotation and database incidents.',
+    tags: ['engineering', 'on-call'],
+  }),
+  contact('g3', 'Lagos Running Club', 'group', {
+    about: 'Saturday 6am runs from Ikoyi.',
+    tags: ['sport', 'lagos'],
+  }),
+  contact('g4', 'Search Quality Working Group', 'group', {
+    about: 'Ranking evaluations, relevance judgements, query logs.',
+    tags: ['search', 'ranking', 'relevance'],
+  }),
+
+  contact('b1', 'Naples Bakery', 'business', {
+    about: 'Fresh sourdough, pastries. Order pickup in 15 minutes.',
+    tags: ['bakery', 'food'],
+  }),
+  contact('b2', 'Ikoyi Pharmacy', 'business', {
+    about: '24/7 pharmacy, delivery in Lagos.',
+    tags: ['health', 'lagos'],
+  }),
+  contact('b3', 'Kite Wire', 'business', {
+    about: 'Payments API for African businesses.',
+    tags: ['fintech', 'payments'],
+  }),
+];
+
+export const chats = [
+  { id: 'ch1', name: 'Ana Ribeiro', kind: 'direct', pinned: true, avatarHue: 210 },
+  { id: 'ch2', name: 'Adebayo Okafor', kind: 'direct', avatarHue: 150 },
+  { id: 'ch3', name: 'Design Guild', kind: 'group', avatarHue: 280 },
+  { id: 'ch4', name: 'Backend Platform', kind: 'group', pinned: true, avatarHue: 20 },
+  { id: 'ch5', name: 'Priya Nair', kind: 'direct', avatarHue: 320 },
+  { id: 'ch6', name: 'Lagos Running Club', kind: 'group', avatarHue: 90 },
+  { id: 'ch7', name: 'Search Quality Working Group', kind: 'group', avatarHue: 200 },
+  { id: 'ch8', name: 'Lukas Meyer', kind: 'direct', avatarHue: 40 },
+  { id: 'ch9', name: 'Naples Bakery', kind: 'business', avatarHue: 12 },
+  { id: 'ch10', name: 'Ikoyi Pharmacy', kind: 'business', avatarHue: 160 },
+  { id: 'ch11', name: 'Chen Wei', kind: 'direct', avatarHue: 250 },
+  { id: 'ch12', name: 'Kite Wire', kind: 'business', avatarHue: 190 },
+  { id: 'ch13', name: 'Chiamaka Eze', kind: 'direct', avatarHue: 300 },
+];
+
+let seq = 1000;
+const msg = (chatId, senderId, text, daysAgo, extra = {}) => ({
+  id: `m${(seq += 1)}`,
+  chatId,
+  senderId,
+  text,
+  timestamp: DEMO_NOW - daysAgo * DAY,
+  ...extra,
+});
+
+export const messages = [
+  // --- search / engineering discussions -----------------------------
+  msg('ch7', 'c10', 'Ranking evaluation for the new prefix matching is done: recall@10 jumped from 0.62 to 0.81.', 1),
+  msg('ch7', 'c9', 'The FTS query compiler now appends a wildcard only to the last token, so "search eng" matches "search engine".', 2),
+  msg('ch7', 'c3', 'Semantic recall is better on paraphrases but the distance threshold needs tuning. 0.42 is still too loose.', 3),
+  msg('ch7', 'c10', 'Can we get the query logs for last week? I want to look at zero-result queries.', 4),
+  msg('ch7', 'c2', 'Zero results are usually typos. Bigram matching on contacts fixed 30% of them.', 5),
+  msg('ch4', 'c2', 'The message index rebuild takes 41 seconds on a 200k message database.', 1.2),
+  msg('ch4', 'c9', 'FTS4 with an external content table keeps the index small. Full rebuild is only needed after a schema change.', 1.4),
+  msg('ch4', 'c2', 'Careful: deleting rows does not shrink the FTS index, we need to run the optimize command.', 2.5),
+  msg('ch4', 'c9', 'Added a repair path that rebuilds the search tables when the database comes back corrupt.', 6),
+  msg('ch4', 'c6', 'The trigger on wa_contacts marks rows dirty and a background job drains them in batches of 975.', 7),
+  msg('ch5', 'c3', 'I pushed the embedding pipeline. 96 dimensions, quantised, ~14 MB for 300k messages.', 1.6),
+  msg('ch5', 'c3', 'kNN over the vector table returns message ids; we filter by cosine distance before joining back.', 2.2),
+  msg('ch5', 'c10', 'Do we merge semantic and keyword results, or show them as separate sections?', 2.6),
+  msg('ch5', 'c3', 'Merged, but we log ftsCount, semanticCount and the overlap so we can measure each half.', 2.8),
+  msg('ch11', 'c9', 'Heads up: the tokenizer is applied at write time and at query time, so both sides must agree on locale rules.', 3.4),
+  msg('ch11', 'c9', 'Turkish dotless i broke prefix search until we OR-expanded i with dotless i.', 3.6),
+  msg('ch11', 'c6', 'Do we store the tokenizer version with each row? Otherwise a re-tokenize migration is unavoidable.', 4.2),
+
+  // --- day to day ---------------------------------------------------
+  msg('ch1', 'c1', 'Can you send me the Figma link for the new empty state?', 0.2),
+  msg('ch1', 'me', 'Sent. The search empty state now shows recent queries instead of nothing.', 0.18),
+  msg('ch1', 'c1', 'Perfect. Also the filter chips are too tall on small screens.', 0.1),
+  msg('ch3', 'c1', 'Critique on Thursday: bring the search results screen and the filter sheet.', 0.6),
+  msg('ch3', 'c8', 'I will walk through the empty state and the zero-result copy.', 0.5),
+  msg('ch3', 'c1', 'Reminder: the results list needs a staggered first page, not 20 messages then contacts.', 1.1),
+  msg('ch3', 'c10', 'Agreed. One of each section on the first page reads much better.', 1.05),
+  msg('ch2', 'c2', 'Did the migration finish on staging?', 0.9),
+  msg('ch2', 'me', 'It did. 12 minutes, no downtime, index rebuild ran afterwards.', 0.85),
+  msg('ch2', 'c2', 'Nice. Let us schedule production for Sunday night.', 0.8),
+  msg('ch6', 'c8', 'Saturday run: 6am from Ikoyi, 12km, slow pace.', 2.1),
+  msg('ch6', 'me', 'In. Bringing the pharmacy order afterwards.', 2),
+  msg('ch6', 'c5', 'I will be late, start without me.', 1.9),
+  msg('ch8', 'c6', 'The offline cache now stores the last 500 messages per chat.', 3.1),
+  msg('ch8', 'me', 'Does it also cache the search index, or do we re-index on launch?', 3),
+  msg('ch8', 'c6', 'Re-index on launch, but incrementally from a cursor.', 2.95),
+  msg('ch11', 'me', 'Left a comment on the SQLite migration PR.', 5),
+  msg('ch11', 'c9', 'Thanks, addressed. The dirty-version column is now part of the primary index.', 4.8),
+  msg('ch13', 'c5', 'Contract draft is ready, please review clause 4 on data retention.', 2.7),
+  msg('ch13', 'me', 'Reading tonight. The retention window looks too short for audits.', 2.65),
+
+  // --- business -----------------------------------------------------
+  msg('ch9', 'b1', 'Your sourdough order is ready for pickup. Reply 1 to confirm.', 0.3),
+  msg('ch9', 'me', '1', 0.28),
+  msg('ch9', 'b1', 'Confirmed. Pickup until 7pm, 12 Via Toledo.', 0.27),
+  msg('ch10', 'b2', 'Your prescription is ready. Delivery within 90 minutes in Lagos.', 0.4),
+  msg('ch10', 'me', 'Please deliver to Lekki Phase 1.', 0.35),
+  msg('ch12', 'b3', 'Kite Wire: your API keys were rotated. Update your integration before Friday.', 1.5),
+  msg('ch12', 'me', 'Can you extend the grace period? Our release is Thursday.', 1.45),
+  msg('ch12', 'b3', 'Extension granted until Monday 09:00 WAT.', 1.4),
+  msg('ch9', 'b1', 'New: pistachio croissant on Saturdays only.', 9),
+  msg('ch10', 'b2', 'We now deliver to Ajah and Sangotedo.', 11),
+
+  // --- recency anchors for recency ranking --------------------------
+  msg('ch1', 'c1', 'One more thing: search results should highlight the matched words.', 0.05),
+  msg('ch4', 'c2', 'Incident closed: the search index was 2 versions behind after the upgrade.', 0.07),
+  msg('ch7', 'c10', 'Zero-result rate is down to 6.4% this week.', 0.08),
+
+  // --- messages that only semantic search will find -----------------
+  msg('ch5', 'c3', 'The nearest-neighbour lookup returns 50 candidates and we keep the 20 closest.', 8),
+  msg('ch7', 'c10', 'Users keep typing whole questions instead of keywords; keyword search fails on those.', 12),
+  msg('ch4', 'c9', 'Text normalisation strips accents so "Tomas" finds "Tomás".', 15),
+  msg('ch3', 'c1', 'The results screen should feel instant even with 300k messages.', 18),
+  msg('ch8', 'c6', 'Voice notes are transcribed before indexing, otherwise they are invisible to search.', 21),
+];
+
+export const corpus = { chats, contacts, messages };
+
+/** Ready-made recent queries for the empty state (RecentSearchItemsManager). */
+export const recentSearches = [
+  'search index rebuild',
+  'Ana',
+  'sourdough order',
+  'on-call rotation',
+];
+
+/* ---- app.mjs ---- */
+/**
+ * app.mjs — the search UI (ChatsSearchEngine + SearchFragment equivalent).
+ *
+ * Behaviour ported from WhatsApp:
+ *  - a tokenized search bar with filter chips (TokenizedSearchInput)
+ *  - debounced, cancellable queries (createSearchSession)
+ *  - one section per result kind, staggered first page (PaginationStrategyStaggered)
+ *  - "load more" paging driven by the page cursor (EngineState.hasMorePages)
+ *  - recent searches when the field is empty (RecentSearchItemsManager)
+ *  - a debug strip that shows the compiled FTS expression and hybrid counters
+ *    (SearchPerformanceLogger's marker annotations, surfaced honestly)
+ */
+
+
+
+const SECTION_META = {
+  contacts: { label: 'Contacts', icon: '👤' },
+  groups: { label: 'Groups', icon: '👥' },
+  messages: { label: 'Messages', icon: '💬' },
+  business: { label: 'Business accounts', icon: '🏪' },
+};
+
+const state = {
+  query: '',
+  page: 0,
+  filters: { messages: true, contacts: true, groups: true, business: true },
+  result: null,
+  loading: false,
+  selectedId: null,
+};
+
+const index = buildIndex(corpus);
+const conversation = document.getElementById('conversation');
+const conversationContent = document.getElementById('conversation-content');
+const welcomeMarkup = conversationContent.innerHTML;
+
+const esc = (s) =>
+  String(s ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
+  );
+
+/** Highlight every query term (and its prefixes) in a string. */
+function highlight(text, query) {
+  const words = normalize(query)
+    .split(' ')
+    .filter((w) => w.length > 1 && !w.startsWith('-'));
+  if (!words.length) return esc(text);
+  const pattern = words
+    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .sort((a, b) => b.length - a.length)
+    .map((w) => `${w}[\\p{L}\\p{N}]*`)
+    .join('|');
+  const re = new RegExp(`(${pattern})`, 'giu');
+  return esc(text).replace(re, '<mark>$1</mark>');
+}
+
+function timeAgo(ts) {
+  const diff = DEMO_NOW - ts;
+  const mins = Math.round(diff / 60000);
+  if (mins < 60) return `${Math.max(1, mins)}m`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days}d`;
+  return `${Math.round(days / 7)}w`;
+}
+
+function avatar(name, hue = 200) {
+  const initials = name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join('');
+  return `<span class="avatar" style="--hue:${hue}">${esc(initials)}</span>`;
+}
+
+function rowsWithHeaders(items) {
+  let last = null;
+  return items
+    .map((item) => {
+      const head =
+        item.section !== last && item.section !== 'messages'
+          ? `<div class="section-head">${SECTION_META[item.section].icon} ${SECTION_META[item.section].label}</div>`
+          : '';
+      last = item.section;
+      return head + renderResultRow(item, state.query);
+    })
+    .join('');
+}
+
+function renderResultRow(item, query) {
+  if (item.section === 'messages') {
+    const chat = item.chat ?? { name: 'Chat', avatarHue: 200 };
+    const who = item.doc.senderId === 'me' ? 'You' : item.doc.senderId;
+    return `
+      <button class="row" data-id="${esc(item.id)}" aria-pressed="${state.selectedId === item.id}">
+        ${avatar(chat.name, chat.avatarHue)}
+        <span class="row-main">
+          <span class="row-top">
+            <span class="row-title">${esc(chat.name)}</span>
+            <span class="row-time">${timeAgo(item.doc.timestamp)}</span>
+          </span>
+          <span class="row-sub">${highlight(item.doc.text, query)}</span>
+        </span>
+        ${item.matchKind !== 'fts' ? `<span class="badge ${item.matchKind}">${item.matchKind}</span>` : ''}
+      </button>`;
+  }
+
+  const c = item.doc;
+  const kindLabel =
+    c.kind === 'business' ? 'Business account' : c.kind === 'group' ? 'Group' : 'Contact';
+  return `
+    <button class="row" data-id="${esc(item.id)}" aria-pressed="${state.selectedId === item.id}">
+      ${avatar(c.name, c.kind === 'business' ? 12 : c.kind === 'group' ? 280 : 150)}
+      <span class="row-main">
+        <span class="row-top">
+          <span class="row-title">${highlight(c.name, query)}</span>
+        </span>
+        <span class="row-sub">${esc(kindLabel)}${c.about ? ` · ${highlight(c.about, query)}` : ''}</span>
+      </span>
+      ${item.matchKind !== 'fts' ? `<span class="badge ${item.matchKind}">${item.matchKind}</span>` : ''}
+    </button>`;
+}
+
+function clearConversation() {
+  state.selectedId = null;
+  conversation.classList.remove('is-open');
+  conversationContent.className = 'welcome';
+  conversationContent.innerHTML = welcomeMarkup;
+}
+
+function openConversation(item) {
+  const name =
+    item.section === 'messages'
+      ? item.chat?.name ?? corpus.chats.find((candidate) => candidate.id === item.doc.chatId)?.name ?? 'Chat'
+      : item.doc.name;
+  const matchedChat = item.section === 'messages'
+    ? item.chat
+    : corpus.chats.find((candidate) => candidate.name === name);
+  const chat =
+    matchedChat ??
+    corpus.chats.find((candidate) => candidate.name === name || candidate.id === item.doc.chatId);
+
+  state.selectedId = item.id;
+  conversation.classList.add('is-open');
+
+  if (!chat) {
+    conversationContent.className = 'contact-card';
+    conversationContent.innerHTML = `
+      ${avatar(name, item.doc.kind === 'business' ? 12 : item.doc.kind === 'group' ? 280 : 150)}
+      <h2>${esc(name)}</h2>
+      <p>${esc(item.doc.about || 'No profile details available.')}</p>`;
+    return;
+  }
+
+  const messages = corpus.messages
+    .filter((message) => message.chatId === chat.id)
+    .sort((a, b) => a.timestamp - b.timestamp);
+  const messageRows = messages
+    .map((message) => {
+      const isOutgoing = message.senderId === 'me';
+      const sender = corpus.contacts.find((contact) => contact.id === message.senderId)?.name ?? chat.name;
+      return `
+        <div class="message ${isOutgoing ? 'outgoing' : ''} ${message.id === item.doc.id ? 'match' : ''}">
+          ${!isOutgoing && chat.kind === 'group' ? `<span class="message-sender">${esc(sender)}</span>` : ''}
+          <span>${highlight(message.text, state.query)}</span>
+          <span class="message-meta">${new Date(message.timestamp).toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' })}</span>
+        </div>`;
+    })
+    .join('');
+
+  conversationContent.className = 'conversation-view';
+  conversationContent.innerHTML = `
+    <div class="conversation-head">
+      <button class="conversation-back" type="button" aria-label="Back to chats">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m15 18-6-6 6-6" />
+        </svg>
+      </button>
+      ${avatar(chat.name, chat.avatarHue)}
+      <div class="conversation-title">
+        <strong>${esc(chat.name)}</strong>
+        <span>${chat.kind === 'group' ? 'Group conversation' : chat.kind === 'business' ? 'Business conversation' : 'Conversation'} · read-only preview</span>
+      </div>
+    </div>
+    <div class="conversation-body">
+      <div class="day-label">Conversation preview</div>
+      ${messageRows || '<div class="loading">No messages in this conversation yet.</div>'}
+    </div>
+    <div class="conversation-note">The matching message is outlined in burnt orange. This demo preview is read-only.</div>`;
+}
+
+function render() {
+  const list = document.getElementById('results');
+  const empty = document.getElementById('empty');
+  const res = state.result;
+
+  if (!state.query.trim()) {
+    clearConversation();
+    empty.innerHTML = `
+      <div class="empty-block">
+        <div class="empty-title">Search messages, contacts and groups</div>
+        <div class="chips recent">
+          ${recentSearches
+            .map((q) => `<button class="chip ghost" data-recent="${esc(q)}">${esc(q)}</button>`)
+            .join('')}
+        </div>
+        <p class="hint">
+          Try <code>sourd</code> (prefix), <code>"distance threshold"</code> (phrase),
+          <code>index -rebuild</code> (negation), <code>from:Adebayo</code> (field),
+          or <code>rebuilt indexing</code> (semantic only).
+        </p>
+      </div>`;
+    empty.hidden = false;
+    list.innerHTML = '';
+    document.getElementById('debug').hidden = true;
+    return;
+  }
+
+  empty.hidden = true;
+  if (!res) {
+    list.innerHTML = '<div class="loading">Searching…</div>';
+    return;
+  }
+
+  if (res.total === 0) {
+    list.innerHTML = `<div class="loading">No results for “${esc(res.query)}”.</div>`;
+  } else {
+    list.innerHTML = rowsWithHeaders(res.items);
+  }
+
+  const more = document.getElementById('more');
+  more.hidden = res.nextCursor === null;
+  more.textContent = res.nextCursor === null ? '' : 'Load more';
+
+  const dbg = document.getElementById('debug');
+  dbg.hidden = false;
+  dbg.innerHTML = `
+    <div class="dbg-line"><span class="dbg-k">compiled</span> <code>${esc(res.ftsQuery || '—')}</code></div>
+    <div class="dbg-line">
+      <span class="dbg-k">layers</span>
+      fts <b>${res.debug.ftsCount}</b> ·
+      fuzzy <b>${res.debug.fuzzyHits}</b> ·
+      semantic <b>${res.debug.semanticHits}</b> ·
+      fused <b>${res.debug.fusedCount}</b>
+    </div>
+    <div class="dbg-line"><span class="dbg-k">page</span> ${res.page + 1} · ${res.total} total · ${res.debug.elapsedMs} ms</div>`;
+}
+
+const session = createSearchSession(index, {
+  debounceMs: 250,
+  onResults(result, meta) {
+    state.loading = false;
+    if (state.page === 0) state.result = result;
+    else {
+      // append the next page (staggered continuation)
+      state.result = {
+        ...result,
+        items: [...state.result.items, ...result.items],
+        total: result.total,
+        nextCursor: result.nextCursor,
+        page: result.page,
+        sections: result.sections,
+        debug: result.debug,
+      };
+    }
+    document.getElementById('spinner').hidden = true;
+    if (meta?.fromCache) state.result.debug = { ...state.result.debug, cached: true };
+    render();
+  },
+  onStart() {
+    document.getElementById('spinner').hidden = false;
+  },
+});
+
+function requestResults(page = 0) {
+  state.page = page;
+  if (page === 0) {
+    state.result = null;
+    render();
+  }
+  session.update(state.query, { filters: state.filters, page });
+}
+
+function wire() {
+  const input = document.getElementById('q');
+
+  input.addEventListener('input', () => {
+    state.query = input.value;
+    state.result = null;
+    clearConversation();
+    if (!state.query.trim()) {
+      session.cancel();
+      render();
+      return;
+    }
+    requestResults(0);
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      input.value = '';
+      state.query = '';
+      state.result = null;
+      render();
+    }
+  });
+
+  for (const chip of document.querySelectorAll('[data-filter]')) {
+    chip.addEventListener('click', () => {
+      const key = chip.dataset.filter;
+      if (key === 'all') {
+        state.filters = { messages: true, contacts: true, groups: true, business: true };
+      } else {
+        state.filters = {
+          messages: false,
+          contacts: false,
+          groups: false,
+          business: false,
+          [key]: true,
+        };
+      }
+      clearConversation();
+      for (const c of document.querySelectorAll('[data-filter]')) {
+        c.classList.toggle('active', c.dataset.filter === key);
+      }
+      if (state.query.trim()) requestResults(0);
+    });
+  }
+
+  document.getElementById('results').addEventListener('click', (e) => {
+    const row = e.target.closest('.row');
+    if (!row) return;
+    const item = state.result?.items.find((result) => result.id === row.dataset.id);
+    if (item) {
+      openConversation(item);
+      render();
+    }
+  });
+
+  conversation.addEventListener('click', (e) => {
+    if (!e.target.closest('.conversation-back')) return;
+    clearConversation();
+    render();
+  });
+
+  document.getElementById('empty').addEventListener('click', (e) => {
+    const recent = e.target.closest('[data-recent]');
+    if (recent) {
+      input.value = recent.dataset.recent;
+      state.query = input.value;
+      state.result = null;
+      clearConversation();
+      render();
+      requestResults(0);
+    }
+  });
+
+  document.getElementById('more').addEventListener('click', () => {
+    if (state.result?.nextCursor != null) requestResults(state.result.nextCursor);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === '/' && document.activeElement !== input) {
+      e.preventDefault();
+      input.focus();
+    }
+  });
+}
+
+function toast(text) {
+  const el = document.getElementById('toast');
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('show'), 1400);
+}
+
+wire();
+render();
+document.getElementById('q').focus();
+</script>
+</body>
+</html>

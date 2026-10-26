@@ -1,0 +1,2230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Group admin bot — console</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #080808;
+  --panel: #11100f;
+  --panel-2: #1b1714;
+  --line: #30251f;
+  --text: #f4eee9;
+  --muted: #a99a90;
+  --green: #d66a2c;
+  --green-deep: #6f3218;
+  --accent: #e47a43;
+  --mark: #ffb27a;
+  --bubble-in: #211b17;
+  --bubble-out: #633116;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(900px 520px at 50% -20%, rgba(117, 54, 24, 0.2), transparent 72%),
+    var(--bg);
+  color: var(--text);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+button, input { font: inherit; }
+button { color: inherit; }
+
+.app-shell {
+  width: min(1440px, 100%);
+  height: min(860px, calc(100vh - 48px));
+  min-height: 580px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.62);
+}
+
+.app-topbar {
+  height: 64px;
+  flex: 0 0 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 22px;
+  background: #0e0d0c;
+  border-bottom: 1px solid var(--line);
+}
+
+.brand, .topbar-profile, .sidebar-heading, .conversation-head,
+.searchbar, .searchbar label, .section-head, .message-meta {
+  display: flex;
+  align-items: center;
+}
+
+.brand { gap: 11px; min-width: 0; }
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  color: #160c07;
+  background: var(--accent);
+  border-radius: 12px;
+}
+.brand-mark svg { width: 21px; height: 21px; }
+.brand-copy { display: grid; line-height: 1.15; }
+.brand-copy strong { font-size: 14px; letter-spacing: 0.04em; }
+.brand-copy span { color: var(--muted); font-size: 11px; margin-top: 4px; }
+.topbar-profile { gap: 10px; color: var(--muted); font-size: 12px; }
+.profile-avatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: #ffe0c9;
+  background: #58301e;
+  font-weight: 700;
+}
+
+.chat-layout {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(300px, 370px) minmax(0, 1fr);
+}
+
+.chat-sidebar {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+  background: #100f0e;
+}
+
+.sidebar-heading {
+  justify-content: space-between;
+  padding: 19px 20px 12px;
+}
+.sidebar-heading h1 { margin: 0; font-size: 21px; letter-spacing: -0.03em; }
+.online-label { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11px; }
+.online-dot { width: 7px; height: 7px; border-radius: 50%; background: #d98252; box-shadow: 0 0 10px rgba(217, 130, 82, 0.45); }
+
+.searchbar { gap: 10px; padding: 4px 16px 12px; }
+.searchbar label {
+  flex: 1;
+  min-width: 0;
+  gap: 9px;
+  height: 42px;
+  padding: 0 13px;
+  color: var(--muted);
+  background: #1a1715;
+  border: 1px solid #29211c;
+  border-radius: 11px;
+  transition: border-color 0.16s, background 0.16s;
+}
+.searchbar label:focus-within { border-color: var(--accent); background: #201914; }
+.search-icon { width: 17px; height: 17px; flex: 0 0 auto; }
+.searchbar input {
+  width: 100%;
+  min-width: 0;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font-size: 13px;
+}
+.searchbar input::placeholder { color: #8f8178; }
+.spinner {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.chips { display: flex; gap: 7px; padding: 0 16px 13px; flex-wrap: wrap; }
+.chip {
+  padding: 5px 11px;
+  color: #b9aaa0;
+  background: #171412;
+  border: 1px solid #332820;
+  border-radius: 999px;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: 0.15s ease;
+}
+.chip:hover { color: var(--text); border-color: #85502f; }
+.chip.active {
+  color: #ffc092;
+  background: rgba(214, 106, 44, 0.16);
+  border-color: rgba(214, 106, 44, 0.55);
+}
+.chip.ghost { background: #1c1713; }
+
+.chat-list {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  border-top: 1px solid #28201b;
+  scrollbar-color: #493326 transparent;
+  scrollbar-width: thin;
+}
+#results { padding-bottom: 8px; }
+
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 73px;
+  padding: 11px 16px;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgba(48, 37, 31, 0.68);
+  cursor: pointer;
+  font: inherit;
+  transition: background 0.15s ease;
+}
+.row:hover, .row[aria-pressed="true"] { background: #1b1613; }
+.row[aria-pressed="true"]::before {
+  position: absolute;
+  inset: 12px auto 12px 0;
+  width: 3px;
+  content: "";
+  background: var(--accent);
+  border-radius: 0 3px 3px 0;
+}
+.avatar {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  color: #fff2e7;
+  background: hsl(var(--hue, 24) 35% 34%);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 650;
+}
+.row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.row-title { overflow: hidden; color: #f3ece6; font-size: 13px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.row-time { color: #a88f7f; font-size: 10.5px; flex: 0 0 auto; }
+.row-sub {
+  overflow: hidden;
+  color: #a99a90;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+mark { color: #ffb27a; background: transparent; font-weight: 700; }
+
+.badge {
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  color: #ffbe94;
+  background: rgba(214, 106, 44, 0.16);
+  border: 1px solid rgba(214, 106, 44, 0.22);
+  border-radius: 6px;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.badge.semantic { color: #ffca9f; }
+.badge.fuzzy { color: #e8a276; }
+
+.section-head {
+  gap: 7px;
+  padding: 12px 16px 6px;
+  color: #a68772;
+  background: #14110f;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+#more {
+  display: block;
+  width: 100%;
+  padding: 13px;
+  color: #f2a06e;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+  font-size: 12px;
+}
+#more:hover { background: #1c1713; }
+#more[hidden], #debug[hidden] { display: none; }
+
+#empty { padding: 18px 17px 22px; }
+.empty-title { margin-bottom: 12px; color: #e6d9d0; font-size: 12px; font-weight: 600; }
+.chips.recent { gap: 6px; padding: 0 0 13px; }
+.hint { margin: 0; color: #9e9188; font-size: 11px; line-height: 1.8; }
+.hint code { padding: 2px 5px; color: #f4b185; background: #211914; border-radius: 4px; font-size: 10.5px; }
+
+#debug {
+  display: grid;
+  gap: 4px;
+  padding: 10px 14px;
+  color: var(--muted);
+  background: #0d0c0b;
+  border-top: 1px solid var(--line);
+  font-size: 10px;
+}
+.dbg-k { display: inline-block; min-width: 60px; color: #8b6f5d; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
+#debug code { color: #e8ac83; }
+#debug b { color: var(--text); }
+
+.conversation {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: #0d0c0b;
+  background-image: radial-gradient(rgba(217, 126, 72, 0.06) 0.7px, transparent 0.7px);
+  background-size: 18px 18px;
+}
+.conversation-view { min-height: 0; flex: 1; display: flex; flex-direction: column; }
+.welcome {
+  width: min(440px, calc(100% - 40px));
+  margin: auto;
+  padding: 36px 18px;
+  text-align: center;
+}
+.welcome-icon {
+  width: 76px;
+  height: 76px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 23px;
+  color: #f4a06b;
+  background: rgba(214, 106, 44, 0.12);
+  border: 1px solid rgba(214, 106, 44, 0.22);
+  border-radius: 26px;
+}
+.welcome-icon svg { width: 34px; height: 34px; }
+.welcome h2 { margin: 0; color: #f1e8e1; font-size: 22px; letter-spacing: -0.03em; }
+.welcome > p { max-width: 360px; margin: 10px auto 22px; color: #a89b92; font-size: 13px; }
+.welcome-features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; text-align: left; }
+.welcome-feature {
+  min-height: 81px;
+  padding: 12px;
+  color: #b5a69b;
+  background: rgba(27, 23, 20, 0.88);
+  border: 1px solid rgba(72, 53, 42, 0.72);
+  border-radius: 12px;
+  font-size: 10.5px;
+}
+.welcome-feature strong { display: block; margin-bottom: 5px; color: #f0b28b; font-size: 11px; }
+.keyboard-hint { margin-top: 21px; color: #7f736b; font-size: 10px; }
+.keyboard-hint kbd { padding: 3px 6px; color: #c7b5a8; background: #1d1916; border: 1px solid #3a2d25; border-radius: 5px; font: inherit; }
+
+.conversation-head {
+  flex: 0 0 66px;
+  gap: 12px;
+  padding: 0 22px;
+  background: rgba(17, 16, 15, 0.96);
+  border-bottom: 1px solid var(--line);
+}
+.conversation-back { display: none; }
+.conversation-title { min-width: 0; display: grid; gap: 2px; }
+.conversation-title strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-title span { color: #a2958c; font-size: 10.5px; }
+.conversation-body { min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 9px; overflow-y: auto; padding: 24px clamp(18px, 6vw, 86px); }
+.day-label { align-self: center; margin: 4px 0 10px; padding: 5px 11px; color: #bfa18c; background: rgba(37, 30, 25, 0.9); border: 1px solid #392a20; border-radius: 999px; font-size: 10px; }
+.message {
+  max-width: min(76%, 560px);
+  align-self: flex-start;
+  padding: 9px 12px 6px;
+  color: #efe6de;
+  background: var(--bubble-in);
+  border: 1px solid rgba(255, 255, 255, 0.035);
+  border-radius: 4px 13px 13px 13px;
+  box-shadow: 0 3px 9px rgba(0, 0, 0, 0.12);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.message.outgoing { align-self: flex-end; background: var(--bubble-out); border-radius: 13px 4px 13px 13px; }
+.message.match { outline: 1px solid var(--accent); box-shadow: 0 0 0 3px rgba(214, 106, 44, 0.1); }
+.message-sender { display: block; margin-bottom: 3px; color: #edaa7e; font-size: 10px; font-weight: 650; }
+.message-meta { justify-content: flex-end; gap: 4px; margin-top: 4px; color: #b69b87; font-size: 9px; }
+.conversation-note { padding: 11px 16px; color: #96877d; background: rgba(17, 16, 15, 0.95); border-top: 1px solid var(--line); text-align: center; font-size: 10px; }
+.contact-card { width: min(380px, 100%); align-self: center; margin: auto; padding: 26px; background: #191512; border: 1px solid #3a2a20; border-radius: 16px; text-align: center; }
+.contact-card .avatar { width: 66px; height: 66px; margin: 0 auto 14px; font-size: 18px; }
+.contact-card h2 { margin: 0 0 5px; font-size: 17px; }
+.contact-card p { color: var(--muted); font-size: 12px; }
+.loading { padding: 25px 16px; color: var(--muted); text-align: center; font-size: 12px; }
+
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  z-index: 5;
+  transform: translate(-50%, 16px);
+  padding: 9px 15px;
+  color: var(--text);
+  background: #28201b;
+  border: 1px solid #4b3427;
+  border-radius: 999px;
+  font-size: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: 0.2s ease;
+}
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+:focus-visible { outline: 2px solid #ed8c53; outline-offset: 2px; }
+
+@media (max-width: 760px) {
+  body { display: block; padding: 0; }
+  .app-shell { width: 100%; height: 100dvh; min-height: 0; border: 0; border-radius: 0; }
+  .app-topbar { height: 58px; flex-basis: 58px; padding: 0 15px; }
+  .chat-layout { grid-template-columns: minmax(0, 1fr); }
+  .chat-sidebar { border-right: 0; }
+  .conversation { display: none; }
+  .conversation.is-open { display: flex; position: absolute; inset: 58px 0 0; z-index: 2; }
+  .conversation-head { gap: 9px; padding: 0 13px; }
+  .conversation-back {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    color: var(--text);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    cursor: pointer;
+  }
+  .conversation-back svg { width: 17px; height: 17px; }
+  .welcome { padding: 24px 8px; }
+  .welcome-features { grid-template-columns: 1fr; }
+  .welcome-feature { min-height: auto; }
+}
+
+@media (max-width: 420px) {
+  .topbar-profile > span:first-child { display: none; }
+  .sidebar-heading { padding: 16px 16px 10px; }
+  .row { padding-right: 12px; padding-left: 12px; }
+  .conversation-body { padding: 18px 12px; }
+  .message { max-width: 88%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* Admin console — extends styles.css tokens */
+
+.shell { width: min(1180px, 100%); }
+.titlebar { display: flex; align-items: baseline; gap: 10px; margin: 0 0 14px; padding-left: 4px; }
+.titlebar h1 { margin: 0; font-size: 17px; letter-spacing: 0.2px; }
+.titlebar small { color: var(--muted); font-size: 12px; }
+
+.console {
+  display: grid;
+  grid-template-columns: 1fr 1.15fr;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 880px) {
+  .console { grid-template-columns: 1fr; }
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+}
+.panel-head h2 { font-size: 14.5px; margin: 0; }
+.panel-head .epoch { font-size: 11px; color: var(--muted); }
+
+.states { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 14px 4px; }
+.state {
+  font-size: 11.5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+}
+.state.on { color: #ffc092; border-color: rgba(214, 106, 44, 0.45); background: rgba(214, 106, 44, 0.12); }
+.state.off { color: var(--muted); }
+
+.note {
+  margin: 10px 14px 0;
+  padding: 9px 11px;
+  background: #0d0c0b;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font-size: 12.5px;
+  color: #decfc5;
+}
+.note ul { margin: 6px 0 0; padding-left: 16px; }
+.note li { margin: 3px 0; }
+.note li.expired { opacity: 0.45; text-decoration: line-through; }
+.note .by { display: block; color: var(--muted); font-size: 11px; }
+
+pre.stats {
+  margin: 10px 14px 14px;
+  padding: 11px;
+  background: #090807;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: #e0b08f;
+  font-size: 11.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+/* roster */
+
+#members { list-style: none; margin: 0; padding: 6px 0; }
+.member {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+}
+.member.is-actor { background: rgba(214, 106, 44, 0.1); }
+.member-avatar {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 12px; font-weight: 700;
+  background: #39271e;
+  color: #f0c1a0;
+}
+.member.owner .member-avatar { background: rgba(255, 178, 122, 0.18); color: var(--mark); }
+.member.admin .member-avatar { background: rgba(214, 106, 44, 0.18); color: #ffc092; }
+.member-main { display: flex; flex-direction: column; min-width: 0; }
+.member-name { font-size: 13.5px; display: flex; align-items: center; gap: 6px; }
+.member-role { font-size: 11.5px; color: var(--muted); }
+
+.flag {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  letter-spacing: 0.3px;
+}
+.flag.mute { background: rgba(134, 150, 160, 0.2); color: #b8c6ce; }
+.flag.ban { background: rgba(255, 92, 92, 0.16); color: #ff9a9a; }
+.flag.warn { background: rgba(255, 178, 122, 0.14); color: var(--mark); }
+
+/* transcript */
+
+.transcript {
+  height: 340px;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #090807;
+}
+
+.line { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.line-who { font-size: 11px; color: var(--muted); letter-spacing: 0.3px; }
+.line-body {
+  align-self: flex-start;
+  max-width: 88%;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: #201914;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.line-meta { font-size: 10.5px; color: #8e7869; }
+
+.line.system .line-body { background: transparent; color: var(--muted); padding: 2px 0; }
+.line.bot .line-body { background: #382116; border: 1px solid rgba(214, 106, 44, 0.25); }
+.line.bot.action .line-body { background: #38211680; }
+.line.bot.confirm .line-body { background: #302016; border-color: rgba(255, 178, 122, 0.35); }
+.line.bot.error .line-body { background: #2b1618; border-color: rgba(255, 92, 92, 0.35); color: #ffc9c9; }
+.line.bot.delivered .line-body { background: transparent; color: var(--muted); font-style: italic; }
+
+/* composer */
+
+.composer {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-2);
+}
+.composer input {
+  flex: 1;
+  background: #201914;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 10px 14px;
+  color: var(--text);
+  font-size: 13.5px;
+  outline: none;
+}
+.composer input:focus { border-color: var(--green); }
+.composer button {
+  border: 0;
+  border-radius: 999px;
+  padding: 0 16px;
+  background: var(--green);
+  color: #1a0c05;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+}
+.composer button:hover { filter: brightness(1.06); }
+
+.quick { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 12px; }
+
+.actor-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+.actor-bar select {
+  flex: 1;
+  background: #201914;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 9px;
+  font-size: 12.5px;
+}
+.ghost-btn {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ghost-btn:hover { color: var(--text); border-color: #805036; }
+
+#audit { list-style: none; margin: 0; padding: 6px 14px 12px; font-size: 12px; }
+#audit li { padding: 5px 0; border-bottom: 1px solid rgba(64, 46, 35, 0.6); color: #d1c0b4; }
+#audit li.empty { color: var(--muted); border: 0; }
+#audit .t { color: #927967; font-variant-numeric: tabular-nums; }
+#audit i { color: var(--muted); }
+
+#effects {
+  margin: 0;
+  padding: 12px 14px;
+  background: #0d0c0b;
+  border-top: 1px solid var(--line);
+  color: #c3a48f;
+  font-size: 11.5px;
+  line-height: 1.6;
+  max-height: 150px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+</style>
+</head>
+<body>
+  <div class="shell">
+    <div class="titlebar">
+      <h1>Group admin bot</h1>
+      <small>lock · open · status · add · kick · warn · slow mode · undo</small>
+    </div>
+
+    <div class="console">
+      <div class="panel" id="group-panel"></div>
+
+      <div class="panel">
+        <div class="actor-bar">
+          <label for="actor">Acting as</label>
+          <select id="actor">
+            <option value="u0">Nadia — owner</option>
+            <option value="u1">Adebayo — admin</option>
+            <option value="u2">Tomás — member</option>
+            <option value="u3">Priya — member</option>
+          </select>
+          <button class="ghost-btn" id="reset" type="button">Reset</button>
+        </div>
+
+        <div class="transcript" id="transcript"></div>
+
+        <form class="composer" id="form" autocomplete="off">
+          <input id="cmd" placeholder="Type /help, or just chat to test the moderation gates" aria-label="Command" />
+          <button type="submit">Send</button>
+        </form>
+
+        <div class="quick" id="quick">
+          <button class="chip" type="button" data-cmd="/help" data-run="false">/help</button>
+          <button class="chip" type="button" data-cmd="/lock maintenance" data-run="true">/lock maintenance</button>
+          <button class="chip" type="button" data-cmd="/open" data-run="true">/open</button>
+          <button class="chip" type="button" data-cmd="/status &quot;Critique moved to 5pm&quot;" data-run="true">/status "Critique moved to 5pm"</button>
+          <button class="chip" type="button" data-cmd="/slowmode 30s" data-run="true">/slowmode 30s</button>
+          <button class="chip" type="button" data-cmd="/antilink on" data-run="false">/antilink on</button>
+          <button class="chip" type="button" data-cmd="/warn @Tomás spam" data-run="true">/warn @Tomás spam</button>
+          <button class="chip" type="button" data-cmd="/mute @Priya 10m" data-run="true">/mute @Priya 10m</button>
+          <button class="chip" type="button" data-cmd="/kick @Kofi" data-run="true">/kick @Kofi</button>
+          <button class="chip" type="button" data-cmd="/add +234 802 555 1212 Zainab" data-run="true">/add +234 802 555 1212 Zainab</button>
+          <button class="chip" type="button" data-cmd="/stats" data-run="true">/stats</button>
+          <button class="chip" type="button" data-cmd="/audit" data-run="true">/audit</button>
+          <button class="chip" type="button" data-cmd="/undo" data-run="true">/undo</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Members</h2><span class="epoch">roles &amp; standing</span></div>
+        <ul id="members"></ul>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Audit log</h2><span class="epoch">who did what</span></div>
+        <ul id="audit"></ul>
+        <pre id="effects"></pre>
+      </div>
+    </div>
+  </div>
+
+<script type="module">
+/* ---- group-admin.mjs ---- */
+/**
+ * group-admin.mjs — a group administration bot with a command surface.
+ *
+ * The whole feature is one state machine plus a declarative command table:
+ *
+ *   admin types  ─► parse ─► permission gate ─► confirm gate ─► execute ─► audit
+ *                                                              │
+ *   member posts ─► receive() ─► lock / announcement / mute / antilink / slowmode
+ *
+ * Design rules that keep it safe to ship:
+ *  - every mutating command returns an `effects` array; nothing mutates the
+ *    world outside this module, so you can persist effects however you like;
+ *  - destructive commands (kick / ban / purge) require `--yes` or a second
+ *    `/confirm` within 30s;
+ *  - every executed command lands in the audit log, and reversible ones push an
+ *    undo entry;
+ *  - permissions are checked before arguments are even validated, so a member
+ *    cannot probe for member lists.
+ *
+ * No dependencies, no network, deterministic (clock is injectable).
+ */
+
+/* ------------------------------------------------------------------ */
+/* Roles and permissions                                               */
+/* ------------------------------------------------------------------ */
+
+export const ROLE_RANK = { bot: 0, member: 1, admin: 2, owner: 3 };
+
+/** Who may run commands at each level. */
+const LEVELS = {
+  member: ['member', 'admin', 'owner', 'bot'],
+  admin: ['admin', 'owner'],
+  owner: ['owner'],
+  anyone: ['bot'],
+};
+
+export function can(actor, level) {
+  if (!actor) return false;
+  return (LEVELS[level] ?? []).includes(actor.role);
+}
+
+/** Admins may act on members; only the owner may act on admins. */
+function outranks(actor, target) {
+  if (!target) return true;
+  return ROLE_RANK[actor.role] > ROLE_RANK[target.role];
+}
+
+/* ------------------------------------------------------------------ */
+/* Small parsers                                                       */
+/* ------------------------------------------------------------------ */
+
+const DURATION_RE = /^(\d+)\s*(s|sec|secs|m|min|mins|h|hr|hrs|d|day|days)$/i;
+const UNIT_MS = {
+  s: 1_000,
+  sec: 1_000,
+  secs: 1_000,
+  m: 60_000,
+  min: 60_000,
+  mins: 60_000,
+  h: 3_600_000,
+  hr: 3_600_000,
+  hrs: 3_600_000,
+  d: 86_400_000,
+  day: 86_400_000,
+  days: 86_400_000,
+};
+
+/** "10m" -> 600000. Returns null for anything unparseable. */
+export function parseDuration(input) {
+  const m = DURATION_RE.exec(String(input ?? '').trim());
+  if (!m) return null;
+  return Number(m[1]) * UNIT_MS[m[2].toLowerCase()];
+}
+
+export function formatDuration(ms) {
+  if (ms == null) return 'off';
+  if (ms === 0) return 'off';
+  if (ms % 86_400_000 === 0) return `${ms / 86_400_000}d`;
+  if (ms % 3_600_000 === 0) return `${ms / 3_600_000}h`;
+  if (ms % 60_000 === 0) return `${ms / 60_000}m`;
+  return `${Math.round(ms / 1000)}s`;
+}
+
+const FLAGS = new Set(['--yes', '-y', '--all', '--force', '--quiet']);
+
+/**
+ * Split a command line into head, positional args and flags.
+ * Supports quoted arguments:  /welcome "Welcome to the group!"
+ */
+export function parseCommand(text) {
+  const raw = String(text ?? '').trim();
+  if (!raw) return null;
+
+  const withoutPrefix = raw.replace(/^[/!.]/, '');
+  const tokens = [];
+  let buffer = '';
+  let quote = null;
+
+  for (const ch of withoutPrefix) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else buffer += ch;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (buffer) tokens.push(buffer);
+      buffer = '';
+      continue;
+    }
+    buffer += ch;
+  }
+  if (buffer) tokens.push(buffer);
+
+  if (tokens.length === 0) return null;
+
+  const flags = new Set(tokens.filter((t) => FLAGS.has(t.toLowerCase())).map((t) => t.toLowerCase()));
+  const rest = tokens.filter((t) => !FLAGS.has(t.toLowerCase()));
+
+  return {
+    name: rest[0].toLowerCase(),
+    args: rest.slice(1),
+    flags,
+    raw,
+    isCommand: /^[/!.]/.test(raw),
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Group state                                                         */
+/* ------------------------------------------------------------------ */
+
+const MAX_STATUS = 700;
+const STATUS_TTL = 86_400_000; // group status lives 24h
+const CONFIRM_TTL = 30_000;
+const LINK_RE = /(https?:\/\/|www\.|chat\.whatsapp\.com\/|\b[a-z0-9-]+\.(com|net|org|io|ng|co)\b)/i;
+
+export const DEFAULT_SETTINGS = Object.freeze({
+  locked: false, // only admins can post
+  announcement: false, // admins post, members read (same effect, different label)
+  slowSeconds: 0, // per-member posting cooldown
+  antiLink: false, // delete member messages containing links
+  welcome: null, // message posted when someone joins
+  rules: null, // static text `/rules` prints
+  warnLimit: 3, // warnings before the configured action fires
+  warnAction: 'mute', // 'mute' | 'kick'
+  maxWarnings: 10,
+});
+
+export function createGroupBot({ group = {}, members = [], settings = {}, now } = {}) {
+  const clock = typeof now === 'function' ? now : () => Date.now();
+
+  const state = {
+    group: {
+      id: group.id ?? 'group',
+      name: group.name ?? 'New group',
+      createdAt: group.createdAt ?? clock(),
+      inviteEpoch: 1,
+      pinned: null,
+      statuses: [],
+      ...DEFAULT_SETTINGS,
+      ...settings,
+    },
+    members: new Map(), // id -> member
+    audit: [],
+    undoStack: [],
+    pending: new Map(), // actorId -> { command, args, flags, expiresAt }
+  };
+
+  /* ---------------- membership helpers ---------------- */
+
+  const addMember = ({ id, name, phone, role = 'member', muted = false, banned = false }) => {
+    if (!id) return null;
+    const existing = state.members.get(id);
+    if (existing) {
+      existing.name = name ?? existing.name;
+      existing.role = role ?? existing.role;
+      return existing;
+    }
+    const member = {
+      id,
+      name: name ?? id,
+      phone: phone ?? null,
+      role,
+      muted,
+      banned,
+      warnings: [],
+      joinedAt: clock(),
+      lastMessageAt: 0,
+    };
+    state.members.set(id, member);
+    return member;
+  };
+
+  for (const m of members) addMember(m);
+
+  const byName = (needle) => {
+    const n = String(needle ?? '').toLowerCase().replace(/^@/, '').trim();
+    if (!n) return null;
+    const digits = n.replace(/[^\d]/g, '');
+    for (const m of state.members.values()) {
+      if (m.id.toLowerCase() === n) return m;
+      if (digits.length >= 5 && m.phone && m.phone.replace(/[^\d]/g, '').endsWith(digits)) return m;
+      if (m.name.toLowerCase() === n) return m;
+    }
+    for (const m of state.members.values()) {
+      if (m.name.toLowerCase().startsWith(n)) return m;
+    }
+    return null;
+  };
+
+  /** Resolve "@Name", a phone, or an id into a member. */
+  const resolveTarget = (token, mentions = []) => {
+    if (token && token.startsWith('@')) return byName(token);
+    if (token && /^\+?\d[\d\s-]{5,}$/.test(token)) return byName(token);
+    if (token && state.members.has(token)) return state.members.get(token);
+    // bare name fallback, then first mention
+    const bare = byName(token);
+    if (bare) return bare;
+    for (const id of mentions) {
+      const m = state.members.get(id);
+      if (m) return m;
+    }
+    return null;
+  };
+
+  const adminsOf = () =>
+    [...state.members.values()].filter((m) => m.role === 'admin' || m.role === 'owner');
+
+  const audit = (entry) => {
+    state.audit.unshift({ at: clock(), ...entry });
+    if (state.audit.length > 200) state.audit.length = 200;
+  };
+
+  const pushUndo = (entry) => {
+    state.undoStack.push({ at: clock(), ...entry });
+    if (state.undoStack.length > 50) state.undoStack.shift();
+  };
+
+  const stripMember = (m) => {
+    if (m.role === 'owner') return { ok: false, message: "The group owner can't be removed." };
+    return { ok: true };
+  };
+
+  /* ---------------- command table ---------------- */
+
+  const COMMANDS = [
+    {
+      name: 'help',
+      aliases: ['commands', '?'],
+      level: 'member',
+      usage: 'help [command]',
+      summary: 'List the commands you can use',
+      run: ({ actor, args }) => {
+        if (args[0]) {
+          const cmd = findCommand(args[0]);
+          if (!cmd) return { ok: false, message: `Unknown command: ${args[0]}` };
+          if (!can(actor, cmd.level)) return { ok: false, message: denyMessage(cmd) };
+          return { ok: true, message: `/${cmd.usage}\n${cmd.summary}`, kind: 'info' };
+        }
+        return { ok: true, message: renderHelp(actor), kind: 'help' };
+      },
+    },
+    {
+      name: 'rules',
+      level: 'member',
+      usage: 'rules',
+      summary: 'Show the group rules',
+      run: () =>
+        state.group.rules
+          ? { ok: true, message: state.group.rules, kind: 'info' }
+          : { ok: false, message: 'No rules set. An admin can add them with /setrules <text>.' },
+    },
+    {
+      name: 'stats',
+      aliases: ['info'],
+      level: 'admin',
+      usage: 'stats',
+      summary: 'Group health at a glance',
+      run: () => ({ ok: true, message: describeSettings(state), kind: 'info' }),
+    },
+    {
+      name: 'lock',
+      aliases: ['close', 'freeze'],
+      level: 'admin',
+      usage: 'lock [reason]',
+      summary: 'Only admins can post',
+      run: ({ actor, args }) => {
+        if (state.group.locked) return { ok: false, message: 'Group is already locked.' };
+        state.group.locked = true;
+        const reason = args.join(' ') || 'no reason given';
+        pushUndo({ kind: 'lock', actor: actor.id, before: false });
+        audit({ actor: actor.id, command: 'lock', detail: reason });
+        return {
+          ok: true,
+          message: `🔒 Group locked by ${actor.name} (${reason}). Only admins can post now.`,
+          effects: [{ type: 'group_locked', reason }],
+          kind: 'action',
+        };
+      },
+    },
+    {
+      name: 'open',
+      aliases: ['unlock', 'reopen'],
+      level: 'admin',
+      usage: 'open',
+      summary: 'Everyone can post again',
+      run: ({ actor }) => {
+        if (!state.group.locked && !state.group.announcement) {
+          return { ok: false, message: 'Group is already open.' };
+        }
+        state.group.locked = false;
+        state.group.announcement = false;
+        pushUndo({ kind: 'lock', actor: actor.id, before: true });
+        audit({ actor: actor.id, command: 'open' });
+        return {
+          ok: true,
+          message: `🔓 Group opened by ${actor.name}. Everyone can post again.`,
+          effects: [{ type: 'group_opened' }],
+          kind: 'action',
+        };
+      },
+    },
+    {
+      name: 'announce',
+      aliases: ['announcement'],
+      level: 'admin',
+      usage: 'announce <on|off>',
+      summary: 'Announcement mode: admins post, members read',
+      run: ({ actor, args }) => {
+        const on = parseToggle(args[0]);
+        if (on == null) return { ok: false, message: 'Usage: /announce on|off' };
+        if (on === state.group.announcement) {
+          return { ok: false, message: `Announcement mode is already ${on ? 'on' : 'off'}.` };
+        }
+        state.group.announcement = on;
+        state.group.locked = on ? true : state.group.locked;
+        pushUndo({ kind: 'announce', actor: actor.id, before: !on });
+        audit({ actor: actor.id, command: 'announce', detail: on ? 'on' : 'off' });
+        return {
+          ok: true,
+          message: on
+            ? '📣 Announcement mode on — only admins can post.'
+            : '📣 Announcement mode off.',
+          effects: [{ type: 'announcement_mode', enabled: on }],
+          kind: 'action',
+        };
+      },
+    },
+    {
+      name: 'slowmode',
+      aliases: ['slow'],
+      level: 'admin',
+      usage: 'slowmode <off|10s|1m|5m>',
+      summary: 'Rate-limit members to one message per interval',
+      run: ({ actor, args }) => {
+        const arg = args[0] ?? 'off';
+        if (/^(off|0|none)$/i.test(arg)) {
+          const before = state.group.slowSeconds;
+          state.group.slowSeconds = 0;
+          audit({ actor: actor.id, command: 'slowmode', detail: 'off' });
+          if (before === 0) return { ok: false, message: 'Slow mode is already off.' };
+          pushUndo({ kind: 'slowmode', actor: actor.id, before });
+          return { ok: true, message: '🐌 Slow mode off.', effects: [{ type: 'slow_mode', seconds: 0 }] };
+        }
+        const ms = parseDuration(arg);
+        if (!ms || ms > 86_400_000) {
+          return { ok: false, message: 'Usage: /slowmode off|10s|1m|5m (max 1d)' };
+        }
+        const before = state.group.slowSeconds;
+        state.group.slowSeconds = Math.round(ms / 1000);
+        pushUndo({ kind: 'slowmode', actor: actor.id, before });
+        audit({ actor: actor.id, command: 'slowmode', detail: formatDuration(ms) });
+        return {
+          ok: true,
+          message: `🐌 Slow mode: one message per ${formatDuration(ms)} for members.`,
+          effects: [{ type: 'slow_mode', seconds: state.group.slowSeconds }],
+          kind: 'action',
+        };
+      },
+    },
+    {
+      name: 'antilink',
+      aliases: ['nolink'],
+      level: 'admin',
+      usage: 'antilink <on|off>',
+      summary: 'Delete member messages containing links',
+      run: ({ actor, args }) => {
+        const on = parseToggle(args[0]);
+        if (on == null) return { ok: false, message: 'Usage: /antilink on|off' };
+        if (on === state.group.antiLink) {
+          return { ok: false, message: `Anti-link is already ${on ? 'on' : 'off'}.` };
+        }
+        state.group.antiLink = on;
+        pushUndo({ kind: 'antilink', actor: actor.id, before: !on });
+        audit({ actor: actor.id, command: 'antilink', detail: on ? 'on' : 'off' });
+        return {
+          ok: true,
+          message: on ? '🔗 Anti-link on — member links get deleted.' : '🔗 Anti-link off.',
+          effects: [{ type: 'anti_link', enabled: on }],
+          kind: 'action',
+        };
+      },
+    },
+    {
+      name: 'welcome',
+      level: 'admin',
+      usage: 'welcome <text|off>',
+      summary: 'Message posted when someone joins ({name} = new member)',
+      run: ({ actor, args }) => {
+        const text = args.join(' ').trim();
+        if (!text) return { ok: false, message: 'Usage: /welcome "Welcome {name}!" or /welcome off' };
+        if (/^off$/i.test(text)) {
+          state.group.welcome = null;
+          audit({ actor: actor.id, command: 'welcome', detail: 'off' });
+          return { ok: true, message: 'Welcome message removed.' };
+        }
+        state.group.welcome = text;
+        audit({ actor: actor.id, command: 'welcome', detail: text.slice(0, 80) });
+        return {
+          ok: true,
+          message: `Welcome message set:\n“${text}”`,
+          effects: [{ type: 'welcome_set', text }],
+        };
+      },
+    },
+    {
+      name: 'setrules',
+      level: 'admin',
+      usage: 'setrules <text|off>',
+      summary: 'Store the group rules (/rules prints them)',
+      run: ({ actor, args }) => {
+        const text = args.join(' ').trim();
+        if (!text) return { ok: false, message: 'Usage: /setrules "1. Be kind…"' };
+        state.group.rules = /^off$/i.test(text) ? null : text;
+        audit({ actor: actor.id, command: 'setrules' });
+        return {
+          ok: true,
+          message: state.group.rules ? 'Rules saved. Members can read them with /rules.' : 'Rules cleared.',
+        };
+      },
+    },
+    {
+      name: 'status',
+      aliases: ['poststatus'],
+      level: 'admin',
+      usage: 'status <text> | status clear',
+      summary: 'Post to the group status (24h)',
+      run: ({ actor, args }) => {
+        const text = args.join(' ').trim();
+        if (!text) return { ok: false, message: 'Usage: /status "Closing early today" or /status clear' };
+        if (/^clear$/i.test(text)) {
+          const removed = state.group.statuses.length;
+          state.group.statuses = [];
+          audit({ actor: actor.id, command: 'status', detail: 'clear' });
+          return {
+            ok: true,
+            message: `Cleared ${removed} status post(s).`,
+            effects: [{ type: 'group_statuses_cleared', count: removed }],
+            kind: 'action',
+          };
+        }
+        if (text.length > MAX_STATUS) {
+          return { ok: false, message: `Status is too long (${text.length}/${MAX_STATUS}).` };
+        }
+        const post = {
+          id: `st${state.group.statuses.length + 1}_${clock().toString(36)}`,
+          text,
+          authorId: actor.id,
+          authorName: actor.name,
+          at: clock(),
+          expiresAt: clock() + STATUS_TTL,
+        };
+        state.group.statuses.unshift(post);
+        pushUndo({ kind: 'status', actor: actor.id, statusId: post.id });
+        audit({ actor: actor.id, command: 'status', detail: text.slice(0, 80) });
+        return {
+          ok: true,
+          message: `📢 Posted to the group status:\n“${text}”\n(visible for 24h · /status clear to remove)`,
+          effects: [{ type: 'group_status_post', post }],
+          kind: 'action',
+        };
+      },
+    },
+    {
+      name: 'add',
+      aliases: ['addmember'],
+      level: 'admin',
+      usage: 'add <phone> [name]',
+      summary: 'Add a member to the group',
+      run: ({ actor, args }) => {
+        // The parser splits on spaces, so a phone typed as "+234 802 555 1212"
+        // arrives as several args. Join the longest leading phone-looking run.
+        let consumed = 0;
+        let phone = '';
+        for (const arg of args.slice(0, 5)) {
+          const candidate = phone ? `${phone} ${arg}` : arg;
+          if (!/^\+?[\d][\d\s-]*$/.test(candidate)) break;
+          phone = candidate;
+          consumed += 1;
+        }
+        if (!phone || !/^\+?\d[\d\s-]{5,}$/.test(phone)) {
+          return { ok: false, message: 'Usage: /add +2348012345678 [Display name]' };
+        }
+        if (hasPhone(phone)) return { ok: false, message: 'That number is already in the group.' };
+        const name = args.slice(consumed).join(' ') || `+${phone.replace(/[^\d]/g, '')}`;
+        const member = addMember({
+          id: `u${state.members.size + 1}_${clock().toString(36)}`,
+          name,
+          phone,
+        });
+        pushUndo({ kind: 'add', actor: actor.id, memberId: member.id });
+        audit({ actor: actor.id, command: 'add', detail: name });
+        const welcome = state.group.welcome
+          ? `\n\n${state.group.welcome.replace(/\{name\}/g, name)}`
+          : '';
+        return {
+          ok: true,
+          message: `➕ ${name} added by ${actor.name}.${welcome}`,
+          effects: [
+            { type: 'member_added', member },
+            ...(welcome ? [{ type: 'welcome_message', text: welcome.trim() }] : []),
+          ],
+          kind: 'action',
+        };
+      },
+    },
+    {
+      name: 'kick',
+      aliases: ['remove'],
+      level: 'admin',
+      usage: 'kick @member [reason] [--yes]',
+      summary: 'Remove a member (they can rejoin)',
+      destructive: true,
+      run: ({ actor, args, flags, mentions }) => confirmable({
+        actor,
+        name: 'kick',
+        args,
+        flags,
+        mentions,
+        describe: (target, reason) => `Remove ${target.name} from the group${reason ? ` (${reason})` : ''}?`,
+        apply: (target, reason) => {
+          const guard = stripMember(target);
+          if (!guard.ok) return guard;
+          if (!outranks(actor, target)) {
+            return { ok: false, message: `Only the owner can remove an admin (${target.name}).` };
+          }
+          const snapshot = { ...target };
+          state.members.delete(target.id);
+          pushUndo({ kind: 'kick', actor: actor.id, member: snapshot });
+          audit({ actor: actor.id, command: 'kick', target: target.id, detail: reason });
+          const left = reason ? ` Reason: ${reason}` : '';
+          return {
+            ok: true,
+            message: `🚪 ${target.name} removed by ${actor.name}.${left}`,
+            effects: [{ type: 'member_removed', memberId: target.id, reason }],
+            kind: 'action',
+          };
+        },
+      }),
+    },
+    {
+      name: 'ban',
+      level: 'admin',
+      usage: 'ban @member [reason] [--yes]',
+      summary: 'Remove and block from rejoining',
+      destructive: true,
+      run: ({ actor, args, flags, mentions }) => confirmable({
+        actor,
+        name: 'ban',
+        args,
+        flags,
+        mentions,
+        describe: (target, reason) => `Ban ${target.name}${reason ? ` (${reason})` : ''}? They cannot rejoin.`,
+        apply: (target, reason) => {
+          if (target.role === 'owner') return { ok: false, message: "The group owner can't be banned." };
+          if (!outranks(actor, target)) return { ok: false, message: `Only the owner can ban an admin (${target.name}).` };
+          target.banned = true;
+          target.muted = true;
+          pushUndo({ kind: 'ban', actor: actor.id, memberId: target.id });
+          audit({ actor: actor.id, command: 'ban', target: target.id, detail: reason });
+          return {
+            ok: true,
+            message: `⛔ ${target.name} banned by ${actor.name}.${reason ? ` Reason: ${reason}` : ''}`,
+            effects: [{ type: 'member_banned', memberId: target.id, reason }],
+            kind: 'action',
+          };
+        },
+      }),
+    },
+    {
+      name: 'unban',
+      level: 'admin',
+      usage: 'unban <phone|@name>',
+      summary: 'Lift a ban',
+      run: ({ actor, args, mentions }) => {
+        const target = resolveTarget(args[0], mentions);
+        if (!target) return { ok: false, message: 'Who? Use /unban @name or /unban +234…' };
+        if (!target.banned) return { ok: false, message: `${target.name} is not banned.` };
+        target.banned = false;
+        target.muted = false;
+        audit({ actor: actor.id, command: 'unban', target: target.id });
+        return {
+          ok: true,
+          message: `✅ ${target.name} unbanned.`,
+          effects: [{ type: 'member_unbanned', memberId: target.id }],
+        };
+      },
+    },
+    {
+      name: 'mute',
+      aliases: ['silence'],
+      level: 'admin',
+      usage: 'mute @member [10m]',
+      summary: 'Stop a member from posting (optionally timed)',
+      run: ({ actor, args, mentions }) => {
+        const target = resolveTarget(args[0], mentions);
+        if (!target) return { ok: false, message: 'Who? Use /mute @name 10m' };
+        if (target.role === 'owner') return { ok: false, message: "The group owner can't be muted." };
+        if (!outranks(actor, target)) return { ok: false, message: `Only the owner can mute an admin (${target.name}).` };
+        const ms = args[1] ? parseDuration(args[1]) : 0;
+        if (args[1] && ms == null) return { ok: false, message: 'Duration must look like 30s, 10m, 2h or 7d.' };
+        target.muted = true;
+        target.mutedUntil = ms ? clock() + ms : null;
+        pushUndo({ kind: 'mute', actor: actor.id, memberId: target.id });
+        audit({ actor: actor.id, command: 'mute', target: target.id, detail: ms ? formatDuration(ms) : 'indefinite' });
+        return {
+          ok: true,
+          message: `🔇 ${target.name} muted${ms ? ` for ${formatDuration(ms)}` : ''}.`,
+          effects: [{ type: 'member_muted', memberId: target.id, until: target.mutedUntil }],
+          kind: 'action',
+        };
+      },
+    },
+    {
+      name: 'unmute',
+      level: 'admin',
+      usage: 'unmute @member',
+      summary: 'Let a muted member post again',
+      run: ({ actor, args, mentions }) => {
+        const target = resolveTarget(args[0], mentions);
+        if (!target) return { ok: false, message: 'Who? Use /unmute @name' };
+        if (!target.muted) return { ok: false, message: `${target.name} is not muted.` };
+        target.muted = false;
+        target.mutedUntil = null;
+        audit({ actor: actor.id, command: 'unmute', target: target.id });
+        return {
+          ok: true,
+          message: `🔊 ${target.name} unmuted.`,
+          effects: [{ type: 'member_unmuted', memberId: target.id }],
+        };
+      },
+    },
+    {
+      name: 'warn',
+      level: 'admin',
+      usage: 'warn @member [reason]',
+      summary: `Warn a member (auto-${DEFAULT_SETTINGS.warnAction} at the limit)`,
+      run: ({ actor, args, mentions }) => {
+        const target = resolveTarget(args[0], mentions);
+        if (!target) return { ok: false, message: 'Who? Use /warn @name reason' };
+        if (!outranks(actor, target)) return { ok: false, message: `You can't warn ${target.name}.` };
+        const reason = args.slice(1).join(' ') || 'no reason given';
+        target.warnings.push({ at: clock(), by: actor.id, reason });
+        audit({ actor: actor.id, command: 'warn', target: target.id, detail: reason });
+
+        const limit = state.group.warnLimit;
+        const effects = [
+          { type: 'member_warned', memberId: target.id, count: target.warnings.length, reason },
+        ];
+        let tail = `⚠️ ${target.name} warned (${target.warnings.length}/${limit}) — ${reason}`;
+
+        if (target.warnings.length >= limit) {
+          if (state.group.warnAction === 'kick') {
+            state.members.delete(target.id);
+            pushUndo({ kind: 'kick', actor: actor.id, member: { ...target } });
+            effects.push({ type: 'member_removed', memberId: target.id, reason: 'warning limit' });
+            tail += `\n🚪 Warning limit reached — ${target.name} was removed.`;
+          } else {
+            target.muted = true;
+            target.mutedUntil = null;
+            effects.push({ type: 'member_muted', memberId: target.id, until: null });
+            tail += `\n🔇 Warning limit reached — ${target.name} was muted.`;
+          }
+        }
+        return { ok: true, message: tail, effects, kind: 'action' };
+      },
+    },
+    {
+      name: 'warns',
+      aliases: ['warnings'],
+      level: 'admin',
+      usage: 'warns @member',
+      summary: 'Show a member’s warnings',
+      run: ({ args, mentions }) => {
+        const target = resolveTarget(args[0], mentions);
+        if (!target) return { ok: false, message: 'Who? Use /warns @name' };
+        if (!target.warnings.length) return { ok: true, message: `${target.name} has no warnings.` };
+        const lines = target.warnings.map(
+          (w, i) => `${i + 1}. ${w.reason} — ${new Date(w.at).toISOString().slice(0, 16).replace('T', ' ')}`,
+        );
+        return { ok: true, message: `Warnings for ${target.name}:\n${lines.join('\n')}`, kind: 'info' };
+      },
+    },
+    {
+      name: 'clearwarns',
+      aliases: ['resetwarns'],
+      level: 'admin',
+      usage: 'clearwarns @member',
+      summary: 'Clear a member’s warnings',
+      run: ({ actor, args, mentions }) => {
+        const target = resolveTarget(args[0], mentions);
+        if (!target) return { ok: false, message: 'Who? Use /clearwarns @name' };
+        target.warnings = [];
+        audit({ actor: actor.id, command: 'clearwarns', target: target.id });
+        return { ok: true, message: `Warnings cleared for ${target.name}.` };
+      },
+    },
+    {
+      name: 'promote',
+      level: 'admin',
+      usage: 'promote @member',
+      summary: 'Make a member an admin',
+      run: ({ actor, args, mentions }) => {
+        const target = resolveTarget(args[0], mentions);
+        if (!target) return { ok: false, message: 'Who? Use /promote @name' };
+        if (target.role === 'admin') return { ok: false, message: `${target.name} is already an admin.` };
+        if (target.role === 'owner') return { ok: false, message: `${target.name} is the owner.` };
+        target.role = 'admin';
+        pushUndo({ kind: 'role', actor: actor.id, memberId: target.id, before: 'member' });
+        audit({ actor: actor.id, command: 'promote', target: target.id });
+        return {
+          ok: true,
+          message: `⭐ ${target.name} is now an admin.`,
+          effects: [{ type: 'member_promoted', memberId: target.id }],
+          kind: 'action',
+        };
+      },
+    },
+    {
+      name: 'demote',
+      level: 'owner',
+      usage: 'demote @admin',
+      summary: 'Remove admin rights (owner only)',
+      run: ({ actor, args, mentions }) => {
+        const target = resolveTarget(args[0], mentions);
+        if (!target) return { ok: false, message: 'Who? Use /demote @name' };
+        if (target.role !== 'admin') return { ok: false, message: `${target.name} is not an admin.` };
+        target.role = 'member';
+        pushUndo({ kind: 'role', actor: actor.id, memberId: target.id, before: 'admin' });
+        audit({ actor: actor.id, command: 'demote', target: target.id });
+        return {
+          ok: true,
+          message: `⬇️ ${target.name} is no longer an admin.`,
+          effects: [{ type: 'member_demoted', memberId: target.id }],
+          kind: 'action',
+        };
+      },
+    },
+    {
+      name: 'rename',
+      aliases: ['setname'],
+      level: 'owner',
+      usage: 'rename <new group name>',
+      summary: 'Rename the group (owner only)',
+      run: ({ actor, args }) => {
+        const name = args.join(' ').trim();
+        if (!name || name.length > 60) return { ok: false, message: 'Usage: /rename New group name (max 60 chars)' };
+        const before = state.group.name;
+        state.group.name = name;
+        pushUndo({ kind: 'rename', actor: actor.id, before });
+        audit({ actor: actor.id, command: 'rename', detail: name });
+        return {
+          ok: true,
+          message: `✏️ Group renamed: “${name}”.`,
+          effects: [{ type: 'group_renamed', name }],
+          kind: 'action',
+        };
+      },
+    },
+    {
+      name: 'pin',
+      level: 'admin',
+      usage: 'pin <text|off>',
+      summary: 'Pin a message in the group',
+      run: ({ actor, args }) => {
+        const text = args.join(' ').trim();
+        if (!text) return { ok: false, message: 'Usage: /pin <text> or /pin off' };
+        if (/^off$/i.test(text)) {
+          state.group.pinned = null;
+          audit({ actor: actor.id, command: 'pin', detail: 'off' });
+          return { ok: true, message: 'Unpinned.', effects: [{ type: 'group_unpinned' }] };
+        }
+        state.group.pinned = { text, authorId: actor.id, at: clock() };
+        audit({ actor: actor.id, command: 'pin', detail: text.slice(0, 80) });
+        return {
+          ok: true,
+          message: `📌 Pinned: “${text}”`,
+          effects: [{ type: 'group_pinned', text }],
+          kind: 'action',
+        };
+      },
+    },
+    {
+      name: 'invite',
+      aliases: ['invitelink'],
+      level: 'admin',
+      usage: 'invite reset',
+      summary: 'Revoke the current invite link',
+      destructive: true,
+      run: ({ actor, args, flags }) => {
+        if (args[0] !== 'reset') return { ok: false, message: 'Usage: /invite reset --yes' };
+        if (!flags.has('--yes')) {
+          state.pending.set(actor.id, {
+            command: 'invite',
+            args,
+            flags,
+            expiresAt: clock() + CONFIRM_TTL,
+          });
+          return {
+            ok: true,
+            message: 'Revoke the current invite link? Members with the old link will be blocked.\nReply /confirm within 30s (or add --yes).',
+            kind: 'confirm',
+          };
+        }
+        state.group.inviteEpoch += 1;
+        state.pending.delete(actor.id);
+        audit({ actor: actor.id, command: 'invite reset' });
+        return {
+          ok: true,
+          message: `🔗 Invite link revoked (epoch ${state.group.inviteEpoch}).`,
+          effects: [{ type: 'invite_rotated', epoch: state.group.inviteEpoch }],
+          kind: 'action',
+        };
+      },
+    },
+    {
+      name: 'tagall',
+      aliases: ['everyone'],
+      level: 'admin',
+      usage: 'tagall [message]',
+      summary: 'Mention every member',
+      run: ({ actor, args }) => {
+        const members = [...state.members.values()].filter((m) => !m.banned);
+        const note = args.join(' ').trim();
+        const mentions = members.map((m) => `@${m.name}`).join(' ');
+        return {
+          ok: true,
+          message: `${note ? `${note}\n\n` : ''}${mentions}\n\n(${members.length} members tagged by ${actor.name})`,
+          effects: [{ type: 'mention_all', memberIds: members.map((m) => m.id) }],
+          kind: 'action',
+        };
+      },
+    },
+    {
+      name: 'purge',
+      level: 'owner',
+      usage: 'purge <n|all> --yes',
+      summary: 'Delete recent messages (owner only)',
+      destructive: true,
+      run: ({ actor, args, flags }) => {
+        const amount = args[0] ?? '10';
+        if (!/^(\d+|all)$/i.test(amount)) return { ok: false, message: 'Usage: /purge 50 --yes or /purge all --yes' };
+        if (!flags.has('--yes')) {
+          state.pending.set(actor.id, { command: 'purge', args, flags, expiresAt: clock() + CONFIRM_TTL });
+          return {
+            ok: true,
+            message: `Delete the last ${amount} message(s)? This cannot be undone.\nReply /confirm within 30s (or add --yes).`,
+            kind: 'confirm',
+          };
+        }
+        state.pending.delete(actor.id);
+        audit({ actor: actor.id, command: 'purge', detail: amount });
+        return {
+          ok: true,
+          message: `🧹 Deleted ${amount} message(s).`,
+          effects: [{ type: 'messages_purged', amount }],
+          kind: 'action',
+        };
+      },
+    },
+    {
+      name: 'audit',
+      aliases: ['log'],
+      level: 'admin',
+      usage: 'audit [n]',
+      summary: 'Recent admin actions',
+      run: ({ args }) => {
+        const n = Math.min(Number(args[0]) || 10, 50);
+        if (!state.audit.length) return { ok: true, message: 'No admin actions logged yet.' };
+        const lines = state.audit.slice(0, n).map((a) => {
+          const who = state.members.get(a.actor)?.name ?? a.actor ?? 'system';
+          const target = a.target ? ` → ${state.members.get(a.target)?.name ?? a.target}` : '';
+          const detail = a.detail ? `: ${a.detail}` : '';
+          return `• ${who} · ${a.command}${target}${detail}`;
+        });
+        return { ok: true, message: `Recent admin actions:\n${lines.join('\n')}`, kind: 'info' };
+      },
+    },
+    {
+      name: 'undo',
+      level: 'admin',
+      usage: 'undo',
+      summary: 'Undo the last reversible admin action',
+      run: ({ actor }) => {
+        const entry = state.undoStack.pop();
+        if (!entry) return { ok: false, message: 'Nothing to undo.' };
+        const performer = state.members.get(entry.actor)?.name ?? entry.actor;
+        let message = '';
+        let effects = [];
+
+        switch (entry.kind) {
+          case 'lock':
+            state.group.locked = entry.before;
+            message = `Reverted: group ${entry.before ? 'locked' : 'opened'}.`;
+            effects = [{ type: 'group_locked', reason: 'undo', value: entry.before }];
+            break;
+          case 'announce':
+            state.group.announcement = entry.before;
+            if (!entry.before) state.group.locked = false;
+            message = `Reverted: announcement mode ${entry.before ? 'on' : 'off'}.`;
+            effects = [{ type: 'announcement_mode', enabled: entry.before }];
+            break;
+          case 'slowmode':
+            state.group.slowSeconds = entry.before;
+            message = `Reverted: slow mode ${entry.before ? `${entry.before}s` : 'off'}.`;
+            effects = [{ type: 'slow_mode', seconds: entry.before }];
+            break;
+          case 'antilink':
+            state.group.antiLink = entry.before;
+            message = `Reverted: anti-link ${entry.before ? 'on' : 'off'}.`;
+            effects = [{ type: 'anti_link', enabled: entry.before }];
+            break;
+          case 'kick': {
+            state.members.set(entry.member.id, entry.member);
+            message = `Restored ${entry.member.name} to the group.`;
+            effects = [{ type: 'member_added', member: entry.member }];
+            break;
+          }
+          case 'ban': {
+            const m = state.members.get(entry.memberId);
+            if (m) {
+              m.banned = false;
+              m.muted = false;
+            }
+            message = `Lifted the ban on ${m?.name ?? entry.memberId}.`;
+            effects = [{ type: 'member_unbanned', memberId: entry.memberId }];
+            break;
+          }
+          case 'mute': {
+            const m = state.members.get(entry.memberId);
+            if (m) {
+              m.muted = false;
+              m.mutedUntil = null;
+            }
+            message = `Unmuted ${m?.name ?? entry.memberId}.`;
+            effects = [{ type: 'member_unmuted', memberId: entry.memberId }];
+            break;
+          }
+          case 'add': {
+            const m = state.members.get(entry.memberId);
+            if (m) state.members.delete(entry.memberId);
+            message = `Removed ${m?.name ?? entry.memberId} again.`;
+            effects = [{ type: 'member_removed', memberId: entry.memberId, reason: 'undo' }];
+            break;
+          }
+          case 'role': {
+            const m = state.members.get(entry.memberId);
+            if (m) m.role = entry.before;
+            message = `${m?.name ?? entry.memberId} is back to ${entry.before}.`;
+            effects = [{ type: 'member_role', memberId: entry.memberId, role: entry.before }];
+            break;
+          }
+          case 'rename':
+            state.group.name = entry.before;
+            message = `Group name restored to “${entry.before}”.`;
+            effects = [{ type: 'group_renamed', name: entry.before }];
+            break;
+          case 'status':
+            state.group.statuses = state.group.statuses.filter((s) => s.id !== entry.statusId);
+            message = 'Status post removed.';
+            effects = [{ type: 'group_status_removed', statusId: entry.statusId }];
+            break;
+          default:
+            return { ok: false, message: 'That action cannot be undone.' };
+        }
+
+        audit({ actor: actor.id, command: 'undo', detail: `${entry.kind} by ${performer}` });
+        return { ok: true, message: `↩️ ${message}`, effects, kind: 'action' };
+      },
+    },
+  ];
+
+  function findCommand(name) {
+    const n = String(name ?? '').toLowerCase().replace(/^[/!.]/, '');
+    return COMMANDS.find((c) => c.name === n || (c.aliases ?? []).includes(n)) ?? null;
+  }
+
+  function denyMessage(cmd) {
+    if (cmd.level === 'owner') return 'Only the group owner can do that.';
+    if (cmd.level === 'admin') return 'Admins only. Ask an admin to run this.';
+    return 'You cannot run this command.';
+  }
+
+  function renderHelp(actor) {
+    const groups = [
+      ['Admin', 'admin'],
+      ['Owner', 'owner'],
+      ['Everyone', 'member'],
+    ];
+    const out = [`Commands available to ${actor.name} (${actor.role}):`];
+    for (const [label, level] of groups) {
+      const items = COMMANDS.filter((c) => c.level === level && can(actor, level));
+      if (!items.length) continue;
+      out.push(`\n${label}`);
+      for (const c of items) out.push(`/${c.usage} — ${c.summary}`);
+    }
+    out.push('\nTip: destructive commands ask for /confirm or accept --yes.');
+    return out.join('\n');
+  }
+
+  function parseToggle(value) {
+    if (value == null) return null;
+    const v = String(value).toLowerCase();
+    if (['on', 'true', '1', 'yes', 'enable'].includes(v)) return true;
+    if (['off', 'false', '0', 'no', 'disable'].includes(v)) return false;
+    return null;
+  }
+
+  function hasPhone(phone) {
+    const digits = String(phone).replace(/[^\d]/g, '');
+    for (const m of state.members.values()) {
+      if (m.phone && m.phone.replace(/[^\d]/g, '') === digits) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Two-step confirmation for destructive commands.
+   * First call parks the intent and returns a prompt; `/confirm` or `--yes` runs it.
+   */
+  function confirmable({ actor, name, args, flags, mentions, describe, apply }) {
+    const target = resolveTarget(args[0], mentions);
+    if (!target) return { ok: false, message: `Who? Use /${name} @name` };
+    if (target.id === actor.id) return { ok: false, message: 'You cannot target yourself.' };
+
+    const reason = args
+      .slice(1)
+      .filter((a) => !a.startsWith('--'))
+      .join(' ')
+      .trim();
+
+    if (!flags.has('--yes')) {
+      state.pending.set(actor.id, { command: name, args, flags, expiresAt: clock() + CONFIRM_TTL });
+      return {
+        ok: true,
+        message: `${describe(target, reason)}\nReply /confirm within 30s (or re-run with --yes).`,
+        kind: 'confirm',
+        pending: { command: name, target: target.id },
+      };
+    }
+    return apply(target, reason);
+  }
+
+  function runPending(actor, confirm) {
+    const pending = state.pending.get(actor.id);
+    if (!pending) return { ok: false, message: 'Nothing waiting for confirmation.' };
+    if (clock() > pending.expiresAt) {
+      state.pending.delete(actor.id);
+      return { ok: false, message: 'That confirmation expired — run the command again.' };
+    }
+    if (!confirm) {
+      state.pending.delete(actor.id);
+      return { ok: true, message: 'Cancelled.' };
+    }
+
+    const cmd = findCommand(pending.command);
+    const flags = new Set([...pending.flags, '--yes']);
+    state.pending.delete(actor.id);
+    const result = cmd.run({
+      actor,
+      args: pending.args,
+      flags,
+      mentions: [],
+      text: '',
+    });
+    return result;
+  }
+
+  /* ---------------- public API ---------------- */
+
+  /**
+   * Handle one inbound command message.
+   * @returns {{ok:boolean, message:string, kind?:string, effects?:Array, command?:string}}
+   */
+  function handle({ authorId, text, mentions = [] } = {}) {
+    const actor = state.members.get(authorId);
+    if (!actor) return { ok: false, message: 'You are not in this group.', kind: 'error' };
+    if (actor.banned) return { ok: false, message: 'You are banned from this group.', kind: 'error' };
+    if (actor.role === 'member' && (actor.muted || (actor.mutedUntil && clock() < actor.mutedUntil))) {
+      return { ok: false, message: 'You are muted in this group.', kind: 'error' };
+    }
+
+    const parsed = parseCommand(text);
+    if (!parsed) return { ok: false, message: 'Empty command.', kind: 'error' };
+
+    // confirmation replies come first
+    if (['confirm', 'yes', 'y'].includes(parsed.name)) {
+      if (!can(actor, 'admin')) return { ok: false, message: 'Admins only.', kind: 'error' };
+      return finish(actor, 'confirm', runPending(actor, true));
+    }
+    if (['cancel', 'no'].includes(parsed.name)) {
+      if (!can(actor, 'admin')) return { ok: false, message: 'Admins only.', kind: 'error' };
+      return finish(actor, 'cancel', runPending(actor, false));
+    }
+
+    const cmd = findCommand(parsed.name);
+    if (!cmd) {
+      return {
+        ok: false,
+        message: `Unknown command “${parsed.name}”. Try /help.`,
+        kind: 'error',
+      };
+    }
+    if (!can(actor, cmd.level)) {
+      audit({ actor: actor.id, command: parsed.name, detail: 'denied' });
+      return { ok: false, message: denyMessage(cmd), kind: 'error', command: cmd.name };
+    }
+
+    const result = cmd.run({
+      actor,
+      args: parsed.args,
+      flags: parsed.flags,
+      mentions,
+      text: parsed.raw,
+    });
+    return finish(actor, cmd.name, result);
+  }
+
+  function finish(actor, command, result) {
+    return {
+      ok: !!result.ok,
+      message: result.message ?? (result.ok ? 'Done.' : 'Command failed.'),
+      kind: result.kind ?? (result.ok ? 'info' : 'error'),
+      effects: result.effects ?? [],
+      command,
+    };
+  }
+
+  /**
+   * Moderation gate for a normal (non-command) group message.
+   * The caller deletes the message when `action === 'delete'`.
+   */
+  function receive({ authorId, text = '', hasLink } = {}) {
+    const author = state.members.get(authorId);
+    if (!author) return { action: 'delete', reason: 'not_a_member' };
+    if (author.banned) return { action: 'delete', reason: 'banned' };
+
+    const staff = author.role === 'admin' || author.role === 'owner';
+
+    if (author.mutedUntil && clock() >= author.mutedUntil) {
+      author.muted = false;
+      author.mutedUntil = null;
+    }
+    if (author.muted && !staff) return { action: 'delete', reason: 'muted' };
+
+    if (!staff && (state.group.locked || state.group.announcement)) {
+      return { action: 'delete', reason: 'group_locked' };
+    }
+
+    const link = hasLink ?? LINK_RE.test(text);
+    if (!staff && link && state.group.antiLink) {
+      author.warnings.push({ at: clock(), by: 'system', reason: 'link posted' });
+      return { action: 'delete', reason: 'anti_link', warning: author.warnings.length };
+    }
+
+    if (!staff && state.group.slowSeconds > 0) {
+      const wait = author.lastMessageAt + state.group.slowSeconds * 1000 - clock();
+      if (wait > 0) {
+        return { action: 'delete', reason: 'slow_mode', retryInMs: wait };
+      }
+    }
+
+    author.lastMessageAt = clock();
+    return { action: 'allow' };
+  }
+
+  /** Snapshot for the UI / API — never hand out internal objects. */
+  function snapshot() {
+    return {
+      group: {
+        ...state.group,
+        statuses: state.group.statuses.map((s) => ({ ...s, expired: clock() > s.expiresAt })),
+      },
+      members: [...state.members.values()].map((m) => ({
+        ...m,
+        warnings: [...m.warnings],
+        muted: !!m.muted && (!m.mutedUntil || clock() < m.mutedUntil),
+      })),
+      audit: state.audit.slice(0, 20),
+      pending: [...state.pending.entries()].map(([actorId, p]) => ({ actorId, ...p })),
+    };
+  }
+
+  return {
+    handle,
+    receive,
+    snapshot,
+    findCommand,
+    /** Current parked confirmations, for adapters that persist them. */
+    pendingActions: () =>
+      [...state.pending.entries()].map(([actorId, p]) => ({
+        actorId,
+        command: p.command,
+        args: p.args,
+        flags: [...p.flags],
+        expiresAt: p.expiresAt,
+      })),
+    /** Restore confirmations loaded from storage. */
+    restorePending: (rows = []) => {
+      for (const row of rows) {
+        state.pending.set(row.actorId, {
+          command: row.command,
+          args: row.args ?? [],
+          flags: new Set(row.flags ?? []),
+          expiresAt: row.expiresAt,
+        });
+      }
+    },
+    help: (actorId) => {
+      const actor = state.members.get(actorId);
+      return actor ? renderHelp(actor) : 'Unknown member.';
+    },
+    /** Exposed for adapters/tests. */
+    state,
+    commands: COMMANDS,
+  };
+}
+
+/** Human-readable settings block used by /stats and the UI. */
+export function describeSettings(state) {
+  const g = state.group;
+  const members = [...state.members.values()];
+  const admins = members.filter((m) => m.role === 'admin' || m.role === 'owner');
+  const activeStatus = g.statuses.filter((s) => Date.now() <= s.expiresAt);
+  return [
+    `📊 ${g.name}`,
+    `Members: ${members.length} (${admins.length} admin${admins.length === 1 ? '' : 's'})`,
+    `Posting: ${g.locked || g.announcement ? '🔒 admins only' : '🔓 everyone'}`,
+    `Slow mode: ${formatDuration(g.slowSeconds ? g.slowSeconds * 1000 : 0)}`,
+    `Anti-link: ${g.antiLink ? 'on' : 'off'}`,
+    `Warnings: ${g.warnLimit} then ${g.warnAction}`,
+    `Welcome: ${g.welcome ? `“${g.welcome}”` : 'off'}`,
+    `Status posts: ${activeStatus.length}`,
+    `Pinned: ${g.pinned ? `“${g.pinned.text}”` : 'none'}`,
+    `Invite epoch: ${g.inviteEpoch}`,
+  ].join('\n');
+}
+
+/* ---- admin-app.mjs ---- */
+/**
+ * admin-app.mjs — the group admin console (demo UI for group-admin.mjs).
+ *
+ * Three panes: the group state, the member roster, and the command transcript.
+ * You can act as the owner, an admin, or a plain member to see the permission
+ * gates and the moderation gates from the outside.
+ */
+
+
+const SEED = {
+  group: { id: 'g1', name: 'Design Guild' },
+  members: [
+    { id: 'u0', name: 'Nadia', role: 'owner', phone: '+234 801 000 0001' },
+    { id: 'u1', name: 'Adebayo', role: 'admin', phone: '+234 801 000 0002' },
+    { id: 'u2', name: 'Tomás', role: 'member', phone: '+234 801 000 0003' },
+    { id: 'u3', name: 'Priya', role: 'member', phone: '+234 801 000 0004' },
+    { id: 'u4', name: 'Kofi', role: 'member', phone: '+234 801 000 0005' },
+    { id: 'u5', name: 'Chiamaka', role: 'member', phone: '+234 801 000 0006' },
+  ],
+  settings: {
+    rules: '1. Critique the work, not the person.\n2. No links without context.\n3. Thursday 4pm is critique time.',
+    welcome: 'Welcome {name} — say hi and check /rules.',
+  },
+};
+
+let bot = createGroupBot(SEED);
+let actorId = 'u1';
+let lastEffects = null;
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) =>
+  String(s ?? '').replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
+  );
+
+const ROLE_BADGE = { owner: '👑 owner', admin: '⭐ admin', member: 'member' };
+
+function timeLabel(ts = Date.now()) {
+  return new Date(ts).toTimeString().slice(0, 5);
+}
+
+/* ------------------------------------------------------------------ */
+/* Transcript                                                          */
+/* ------------------------------------------------------------------ */
+
+function pushLine({ who = 'system', text, tone = 'normal', meta = '' }) {
+  const log = $('transcript');
+  const row = document.createElement('div');
+  row.className = `line ${who} ${tone}`;
+  row.innerHTML = `
+    ${who !== 'system' ? `<span class="line-who">${esc(who)}</span>` : ''}
+    <span class="line-body">${esc(text).replace(/\n/g, '<br>')}</span>
+    ${meta ? `<span class="line-meta">${esc(meta)}</span>` : ''}`;
+  log.appendChild(row);
+  log.scrollTop = log.scrollHeight;
+}
+
+function clearTranscript() {
+  $('transcript').innerHTML = '';
+  pushLine({ text: `Bot connected to “${bot.state.group.name}”. Type /help.` });
+}
+
+/* ------------------------------------------------------------------ */
+/* Panels                                                              */
+/* ------------------------------------------------------------------ */
+
+function renderGroupPanel() {
+  const g = bot.snapshot().group;
+  const chip = (on, onLabel, offLabel = onLabel) =>
+    `<span class="state ${on ? 'on' : 'off'}">${esc(on ? onLabel : offLabel)}</span>`;
+
+  $('group-panel').innerHTML = `
+    <div class="panel-head">
+      <h2>${esc(g.name)}</h2>
+      <span class="epoch">invite epoch ${g.inviteEpoch}</span>
+    </div>
+    <div class="states">
+      ${chip(g.locked || g.announcement, '🔒 admins only', '🔓 everyone can post')}
+      ${chip(g.slowSeconds > 0, `🐌 ${g.slowSeconds}s`, '🐌 slow off')}
+      ${chip(g.antiLink, '🔗 anti-link on', '🔗 anti-link off')}
+    </div>
+    ${g.pinned ? `<div class="note">📌 <b>Pinned:</b> ${esc(g.pinned.text)}</div>` : ''}
+    ${
+      g.statuses.length
+        ? `<div class="note">📢 <b>Status</b><ul class="statuses">${g.statuses
+            .map(
+              (s) =>
+                `<li class="${s.expired ? 'expired' : ''}">${esc(s.text)}<span class="by">${esc(s.authorName)} · ${timeLabel(s.at)}${s.expired ? ' · expired' : ''}</span></li>`,
+            )
+            .join('')}</ul></div>`
+        : ''
+    }
+    <pre class="stats">${esc(describeSettings(bot.state))}</pre>`;
+}
+
+function renderMembers() {
+  const { members } = bot.snapshot();
+  const order = { owner: 0, admin: 1, member: 2, bot: 3 };
+  members.sort((a, b) => order[a.role] - order[b.role]);
+
+  $('members').innerHTML = members
+    .map((m) => {
+      const flags = [
+        m.muted ? '<span class="flag mute">muted</span>' : '',
+        m.banned ? '<span class="flag ban">banned</span>' : '',
+        m.warnings.length ? `<span class="flag warn">${m.warnings.length}⚠</span>` : '',
+      ].join('');
+      return `
+      <li class="member ${m.id === actorId ? 'is-actor' : ''} ${m.role}">
+        <span class="member-avatar">${esc(m.name.slice(0, 1))}</span>
+        <span class="member-main">
+          <span class="member-name">${esc(m.name)} ${flags}</span>
+          <span class="member-role">${ROLE_BADGE[m.role] ?? m.role} · ${esc(m.phone ?? '')}</span>
+        </span>
+      </li>`;
+    })
+    .join('');
+}
+
+function renderAudit() {
+  const rows = bot.snapshot().audit.slice(0, 8);
+  $('audit').innerHTML = rows.length
+    ? rows
+        .map((a) => {
+          const who = bot.state.members.get(a.actor)?.name ?? a.actor ?? 'system';
+          const target = a.target ? ` → ${bot.state.members.get(a.target)?.name ?? a.target}` : '';
+          return `<li><span class="t">${timeLabel(a.at)}</span> <b>${esc(who)}</b> /${esc(a.command)}${esc(target)}${a.detail ? ` <i>${esc(a.detail)}</i>` : ''}</li>`;
+        })
+        .join('')
+    : '<li class="empty">No admin actions yet.</li>';
+}
+
+function renderEffects() {
+  if (!lastEffects?.length) {
+    $('effects').textContent = '// effects from the last command appear here';
+    return;
+  }
+  $('effects').textContent = JSON.stringify(lastEffects, null, 2);
+}
+
+function renderAll() {
+  renderGroupPanel();
+  renderMembers();
+  renderAudit();
+  renderEffects();
+  $('actor').value = actorId;
+}
+
+/* ------------------------------------------------------------------ */
+/* Input handling                                                      */
+/* ------------------------------------------------------------------ */
+
+function currentActor() {
+  return bot.state.members.get(actorId);
+}
+
+function submit(raw) {
+  const text = raw.trim();
+  if (!text) return;
+  const actor = currentActor();
+  if (!actor) return;
+
+  pushLine({ who: actor.name, text, meta: timeLabel() });
+
+  if (text.startsWith('/') || text.startsWith('!')) {
+    const res = bot.handle({ authorId: actorId, text });
+    pushLine({
+      who: 'bot',
+      text: res.message,
+      tone: res.ok ? (res.kind === 'confirm' ? 'confirm' : res.kind === 'action' ? 'action' : 'normal') : 'error',
+      meta: res.command ? `/${res.command}` : '',
+    });
+    lastEffects = res.effects ?? [];
+  } else {
+    const verdict = bot.receive({ authorId: actorId, text });
+    if (verdict.action === 'delete') {
+      const why = {
+        group_locked: 'The group is locked — only admins can post.',
+        muted: 'You are muted in this group.',
+        banned: 'You are banned from this group.',
+        anti_link: 'Links are not allowed here — that message was removed.',
+        slow_mode: `Slow mode: wait ${Math.ceil((verdict.retryInMs ?? 0) / 1000)}s before posting again.`,
+      }[verdict.reason] ?? 'Message removed.';
+      pushLine({ who: 'bot', text: `🚫 ${why}`, tone: 'error', meta: verdict.reason });
+      lastEffects = [{ type: 'message_deleted', reason: verdict.reason }];
+    } else {
+      pushLine({
+        who: 'bot',
+        text: `delivered to ${bot.state.members.size - 1} members`,
+        tone: 'delivered',
+        meta: 'moderation: allow',
+      });
+      lastEffects = [{ type: 'message_delivered' }];
+    }
+  }
+
+  renderAll();
+}
+
+/* ------------------------------------------------------------------ */
+/* Wiring                                                              */
+/* ------------------------------------------------------------------ */
+
+function wire() {
+  $('form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const input = $('cmd');
+    submit(input.value);
+    input.value = '';
+    input.focus();
+  });
+
+  $('actor').addEventListener('change', (e) => {
+    actorId = e.target.value;
+    const actor = currentActor();
+    pushLine({ text: `You are now acting as ${actor.name} (${actor.role}).` });
+    renderAll();
+  });
+
+  $('quick').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-cmd]');
+    if (!btn) return;
+    const input = $('cmd');
+    input.value = btn.dataset.cmd;
+    input.focus();
+    if (btn.dataset.run === 'true') {
+      submit(btn.dataset.cmd);
+      input.value = '';
+    }
+  });
+
+  $('reset').addEventListener('click', () => {
+    bot = createGroupBot(SEED);
+    lastEffects = null;
+    clearTranscript();
+    pushLine({ text: 'Group state reset.' });
+    renderAll();
+  });
+}
+
+clearTranscript();
+wire();
+renderAll();
+</script>
+</body>
+</html>

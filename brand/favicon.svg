@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="64" height="64" role="img" aria-label="Guildkeep">
+  <title>Guildkeep</title>
+  <defs>
+    <linearGradient id="gk" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#cc5500"/>
+      <stop offset="1" stop-color="#7a3300"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="#050505"/>
+  <g>
+    <!-- battlements -->
+    <rect x="30" y="26" width="17" height="20" rx="6" fill="url(#gk)"/>
+    <rect x="55.5" y="26" width="17" height="20" rx="6" fill="url(#gk)"/>
+    <rect x="81" y="26" width="17" height="20" rx="6" fill="url(#gk)"/>
+    <!-- bubble -->
+    <path d="M30 40h68a14 14 0 0 1 14 14v34a14 14 0 0 1-14 14H52l-14 12 3-12h-11a14 14 0 0 1-14-14V54a14 14 0 0 1 14-14Z" fill="url(#gk)"/>
+    <!-- magnifier punched out -->
+    <circle cx="57" cy="68" r="15" fill="none" stroke="#050505" stroke-width="8"/>
+    <path d="M68 79 79 90" stroke="#050505" stroke-width="8" stroke-linecap="round"/>
+  </g>
+</svg>

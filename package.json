@@ -1,0 +1,36 @@
+{
+  "name": "group-admin-and-search",
+  "private": true,
+  "type": "module",
+  "description": "Real-time Supabase messaging app, hybrid search demo, and group admin console.",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "start": "node start.mjs",
+    "test": "node --test test/*.test.mjs",
+    "dev:web": "vite",
+    "build:web": "vite build",
+    "db:migrate": "node db/migrate.mjs",
+    "db:seed": "node db/seed.mjs",
+    "db:reset": "node db/migrate.mjs && node db/seed.mjs --reset",
+    "db:status": "node db/migrate.mjs --status",
+    "db:demo": "node db/demo.mjs",
+    "build": "npm run build:demos && npm run build:web",
+    "build:demos": "node build-demo.mjs && node build-admin-demo.mjs",
+    "serve:search": "node server.mjs",
+    "serve:admin": "node admin-server.mjs",
+    "test:pg": "node --test test/pg.test.mjs",
+    "test:sqlite": "node --test test/db.test.mjs test/group-admin.test.mjs test/search-engine.test.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.12",
+    "vite": "^7.1.7"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4"
+  },
+  "optionalDependencies": {
+    "pg": "^8.16.3"
+  }
+}
