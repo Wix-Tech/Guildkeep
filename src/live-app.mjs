@@ -425,10 +425,6 @@ function renderSettingsPage() {
         <span aria-hidden="true">›</span>
       </button>
       <div class="settings-section">
-        <h3>Appearance</h3>
-        <div class="settings-row"><span><strong>Theme</strong><small>Choose the light or dark Guildkeep palette.</small></span><button id="settings-theme-toggle" class="secondary-button" type="button">${document.body.classList.contains('light-theme') ? 'Use dark theme' : 'Use light theme'}</button></div>
-      </div>
-      <div class="settings-section">
         <h3>Account</h3>
         <div class="settings-row"><span><strong>Invite friends</strong><small>Share your Guildkeep username.</small></span><button id="settings-invite" class="secondary-button" type="button">Share</button></div>
         <div class="settings-row"><span><strong>Status privacy</strong><small>Choose who can view your status updates. Updates expire after 24 hours.</small></span>
@@ -440,7 +436,6 @@ function renderSettingsPage() {
         <div class="settings-row"><span><strong>Media</strong><small>Chat and status media are limited to 25 MB per file.</small></span><span class="privacy-value">25 MB</span></div>
       </div>
     </section>`;
-  $('settings-theme-toggle').addEventListener('click', () => setTheme(!document.body.classList.contains('light-theme')));
   $('settings-invite').addEventListener('click', () => {
     void shareLink('Join me on Guildkeep', `Chat with me as @${state.profile.username}.`, currentInviteUrl('username', state.profile.username));
   });
@@ -915,13 +910,6 @@ async function initialiseWorkspace(session) {
   } finally {
     if (state.initializingUserId === userId) state.initializingUserId = null;
   }
-}
-
-function setTheme(light) {
-  document.body.classList.toggle('light-theme', light);
-  localStorage.setItem('ember-theme', light ? 'light' : 'dark');
-  const themeButton = $('settings-theme-toggle');
-  if (themeButton) themeButton.textContent = light ? 'Use dark theme' : 'Use light theme';
 }
 
 function currentInviteUrl(kind, value) {
@@ -1932,8 +1920,6 @@ function wire() {
 if (!isConfigured) {
   $('setup-panel').hidden = false;
 } else {
-  const theme = localStorage.getItem('ember-theme');
-  setTheme(theme === 'light');
   setAuthMode('signin');
   $('auth-panel').hidden = false;
   wire();

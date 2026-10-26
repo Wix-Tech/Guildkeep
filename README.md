@@ -82,8 +82,8 @@ slow mode and anti-link, set rules, rename the group, and post text statuses.
 Channel owners/admins can publish; channel invite links can be shared. Group,
 channel, status, and media access rules are enforced in Postgres and Supabase
 Storage policies, not trusted to the browser. The app uses Telegram-style
-category navigation, including a mobile bottom bar, and a black/burnt-orange
-theme with an optional light palette. Searching from the chat list also finds
+category navigation, including a mobile bottom bar, and a dark-only
+black/burnt-orange theme. Searching from the chat list also finds
 people by display-name or username prefix; **Message** opens the direct
 conversation and focuses its composer.
 
