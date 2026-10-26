@@ -86,6 +86,10 @@ category navigation, including a mobile bottom bar, and a dark-only
 black/burnt-orange theme. Searching from the chat list also finds
 people by display-name or username prefix; **Message** opens the direct
 conversation and focuses its composer.
+Opening a chat member's profile shows their about and last-seen details,
+common groups, and shared media, links, and files in a responsive side panel or
+mobile bottom sheet. Shared content is limited server-side to chats both people
+can access.
 
 ### Hosted chat app (Supabase + Vercel)
 
@@ -93,12 +97,13 @@ conversation and focuses its composer.
    `db/supabase/002_profile_search.sql`,
    `db/supabase/003_groups_profile_reactions.sql`, and
    `db/supabase/004_channels_media_status.sql`, then
-   `db/supabase/005_chat_and_status_settings.sql` in order in its SQL Editor. The
+   `db/supabase/005_chat_and_status_settings.sql` and
+   `db/supabase/006_profile_preview.sql` in order in its SQL Editor. The
    migrations create the chat tables, secure profile search and direct-chat
    RPCs, profile trigger, row-level security policies, group roles/admin
    commands, message reactions, invite flows, channels, contact-only statuses,
-   chat-avatar storage, admin settings RPCs, status privacy controls, and
-   Realtime subscriptions.
+   chat-avatar storage, admin settings RPCs, status privacy controls, profile
+   preview data/actions, and Realtime subscriptions.
 2. Copy `.env.example` to `.env.local` and set `VITE_SUPABASE_URL` and
    `VITE_SUPABASE_ANON_KEY` from the Supabase project API settings. These are
    browser-visible client settings; never use a Supabase secret/service-role key.

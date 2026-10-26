@@ -12,6 +12,7 @@ import {
   editMessage,
   forwardMessage,
   getProfile,
+  getProfilePreview,
   getSession,
   isConfigured,
   joinGroupByInvite,
@@ -30,6 +31,7 @@ import {
   searchProfiles,
   setChatPinned,
   signedMediaUrl,
+  signedMediaUrls,
   publicAvatarUrl,
   publicChatAvatarUrl,
   removeMedia,
@@ -43,6 +45,10 @@ import {
   subscribeToMessages,
   subscribeToMemberships,
   toggleMessageReaction,
+  touchMyPresence,
+  setProfilePreviewMuted,
+  setProfilePreviewBlocked,
+  reportProfilePreview,
   updateMyProfile,
   updateChatSettings,
   updateStatusVisibility,
@@ -83,6 +89,15 @@ const state = {
   voiceStartedAt: 0,
   voiceTimer: null,
   pendingProfileAvatar: null,
+  profilePreview: null,
+  profilePreviewSequence: 0,
+  profilePreviewOrigin: null,
+  profilePreviewScroll: null,
+  profilePreviewContextChatId: null,
+  profilePreviewTab: 'media',
+  profileLightboxIndex: -1,
+  profileLightboxOrigin: null,
+  presenceInterval: null,
 };
 
 const esc = (value) =>
@@ -133,6 +148,9 @@ document.querySelectorAll('.brand-logo').forEach((image) => {
 });
 
 function clearWorkspace() {
+  clearInterval(state.presenceInterval);
+  state.presenceInterval = null;
+  if (!$('profile-preview').hidden) closeProfilePreview(false);
   state.unsubscribeMessages?.();
   state.unsubscribeChat?.();
   state.unsubscribeMemberships?.();
@@ -218,22 +236,44 @@ function renderChats() {
       const type = chat.chat_type ?? (chat.is_group ? 'group' : 'direct');
       const preview = chat.last_message?.body ?? 'Start a conversation';
       const unread = Number(chat.unread_count) || 0;
+      const peer = type === 'direct' ? chat.participants?.[0] : null;
+      const row = peer ? `
+        <div class="row row-profile-layout ${state.activeChatId === chat.chat_id ? 'is-active' : ''}"
+          role="group" aria-label="Chat with ${esc(chat.chat_name)}">
+          <button class="profile-preview-trigger profile-preview-avatar" type="button"
+            data-profile-preview-id="${esc(peer.id)}" aria-label="View ${esc(peer.display_name)}'s profile">
+            ${avatar(peer.display_name, peer.id, peer.avatar_path)}
+          </button>
+          <span class="row-main">
+            <span class="row-top">
+              <button class="row-title profile-preview-trigger" type="button"
+                data-profile-preview-id="${esc(peer.id)}">${esc(chat.chat_name)}</button>
+              <span class="row-time">${esc(chatTimestamp(chat))}</span>
+            </span>
+            <button class="row-sub chat-open-trigger" type="button" data-chat-id="${esc(chat.chat_id)}"
+              aria-pressed="${state.activeChatId === chat.chat_id}">
+              ${esc(preview)}
+            </button>
+          </span>
+          ${unread ? `<span class="unread-badge" aria-label="${unread} unread messages">${unread > 99 ? '99+' : unread}</span>` : ''}
+        </div>` : `
+        <button class="row" type="button" data-chat-id="${esc(chat.chat_id)}"
+          aria-pressed="${state.activeChatId === chat.chat_id}">
+          ${chat.chat_type === 'group'
+            ? chatAvatar(chat.chat_name, chat.chat_id, chat.chat_avatar_path)
+            : avatar(chat.chat_name, chat.chat_id, chat.chat_avatar_path)}
+          <span class="row-main">
+            <span class="row-top">
+              <span class="row-title">${esc(chat.chat_name)}</span>
+              <span class="row-time">${esc(chatTimestamp(chat))}</span>
+            </span>
+            <span class="row-sub">${esc(preview)}</span>
+          </span>
+          ${unread ? `<span class="unread-badge" aria-label="${unread} unread messages">${unread > 99 ? '99+' : unread}</span>` : ''}
+        </button>`;
       return `
         <div class="live-chat-row">
-          <button class="row" type="button" data-chat-id="${esc(chat.chat_id)}"
-            aria-pressed="${state.activeChatId === chat.chat_id}">
-            ${chat.chat_type === 'group'
-              ? chatAvatar(chat.chat_name, chat.chat_id, chat.chat_avatar_path)
-              : avatar(chat.chat_name, chat.chat_id, chat.chat_avatar_path)}
-            <span class="row-main">
-              <span class="row-top">
-                <span class="row-title">${esc(chat.chat_name)}</span>
-                <span class="row-time">${esc(chatTimestamp(chat))}</span>
-              </span>
-              <span class="row-sub">${esc(preview)}</span>
-            </span>
-            ${unread ? `<span class="unread-badge" aria-label="${unread} unread messages">${unread > 99 ? '99+' : unread}</span>` : ''}
-          </button>
+          ${row}
           ${type !== 'channel' ? `<button class="chat-pin ${chat.pinned ? 'is-pinned' : ''}" type="button"
             data-pin-id="${esc(chat.chat_id)}" aria-label="${chat.pinned ? 'Unpin' : 'Pin'} ${esc(chat.chat_name)}"
             aria-pressed="${Boolean(chat.pinned)}" title="${chat.pinned ? 'Unpin chat' : 'Pin chat'}">
@@ -489,6 +529,7 @@ function renderMessages() {
       const own = message.sender_id === state.session.user.id;
       const senderName = message.sender?.display_name ??
         (own ? state.profile.display_name : state.activeChat?.chat_name ?? 'Member');
+      const senderUsername = message.sender?.username ?? '';
       const reactions = state.reactions.get(message.id) ?? [];
       const media = renderMessageMedia(message);
       const reactionMarkup = ['👍', '❤️', '😂', '😮', '😢', '🙏']
@@ -504,7 +545,17 @@ function renderMessages() {
       }
       return `
         <div class="message ${own ? 'outgoing' : ''}" data-message-id="${esc(message.id)}">
-          ${!own && ['group', 'channel'].includes(state.activeChat?.chat_type) ? `<span class="message-sender">${esc(senderName)}</span>` : ''}
+          ${!own ? `<div class="message-author">
+            <button class="profile-preview-trigger message-author-avatar" type="button"
+              data-profile-preview-id="${esc(message.sender_id)}"
+              ${state.activeChat?.chat_type === 'group' ? `data-profile-preview-context="${esc(state.activeChatId)}"` : ''}
+              aria-label="View ${esc(senderName)}'s profile">${avatar(senderName, message.sender_id, message.sender?.avatar_path)}</button>
+            <button class="profile-preview-trigger message-sender" type="button"
+              data-profile-preview-id="${esc(message.sender_id)}"
+              ${state.activeChat?.chat_type === 'group' ? `data-profile-preview-context="${esc(state.activeChatId)}"` : ''}>
+              ${esc(senderName)}${senderUsername ? ` <small>@${esc(senderUsername)}</small>` : ''}
+            </button>
+          </div>` : ''}
           ${message.forwarded_from ? '<span class="forwarded-label">Forwarded</span>' : ''}
           ${message.body ? `<span class="message-text">${esc(message.body)}</span>` : ''}
           ${media}
@@ -529,6 +580,235 @@ function renderMessageMedia(message) {
     return `<video class="message-media-video" controls preload="metadata" src="${src}"></video>`;
   }
   return `<a class="message-file" href="${src}" target="_blank" rel="noopener noreferrer">↧ ${esc(message.file_name ?? 'Download attachment')}</a>`;
+}
+
+function formatLastSeen(timestamp) {
+  if (!timestamp || Number.isNaN(new Date(timestamp).getTime())) return 'Last seen unavailable';
+  const date = new Date(timestamp);
+  const elapsed = Date.now() - date.getTime();
+  if (elapsed < 60_000) return 'Last seen just now';
+  if (elapsed < 60 * 60_000) {
+    const minutes = Math.max(1, Math.floor(elapsed / 60_000));
+    return `Last seen ${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  }
+  return `Last seen ${date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`;
+}
+
+function formatPreviewDate(timestamp) {
+  if (!timestamp || Number.isNaN(new Date(timestamp).getTime())) return '';
+  return new Date(timestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function profilePreviewMarkup(preview, contextChatId) {
+  const profile = preview.profile;
+  const groups = preview.common_groups ?? [];
+  const media = preview.shared_media ?? [];
+  const links = (preview.shared_links ?? []).flatMap((item) => {
+    const found = item.body?.match(/https?:\/\/[^\s<>"']+/g) ?? [];
+    return found.map((url) => ({ ...item, url: url.replace(/[),.;!?]+$/, '') }));
+  });
+  const files = preview.shared_files ?? [];
+  const tabs = [
+    ['media', 'Media', media.length],
+    ['links', 'Links', links.length],
+    ['files', 'Files', files.length],
+  ];
+  const activeItems = state.profilePreviewTab === 'media' ? media
+    : state.profilePreviewTab === 'links' ? links : files;
+
+  return `
+    <header class="profile-preview-identity">
+      ${avatar(profile.display_name, profile.id, profile.avatar_path)}
+      <div>
+        <h2 id="profile-preview-name">${esc(profile.display_name)}</h2>
+        <span>@${esc(profile.username)}</span>
+        <small id="profile-preview-status">${esc(formatLastSeen(preview.last_seen_at))}</small>
+      </div>
+    </header>
+    <p class="profile-preview-about">${esc(profile.bio || 'No about information added.')}</p>
+    <div class="profile-preview-actions" aria-label="Profile actions">
+      <button class="primary-button" type="button" data-preview-message
+        ${preview.blocked ? 'disabled title="Unblock to send messages"' : ''}>Message</button>
+      <button class="secondary-button" type="button" data-preview-mute aria-pressed="${Boolean(preview.muted)}">
+        ${preview.muted ? 'Unmute' : 'Mute'}
+      </button>
+      <button class="secondary-button" type="button" disabled title="soon" aria-label="Call (soon)">Call</button>
+    </div>
+    <section class="profile-preview-groups" aria-labelledby="profile-preview-groups-title">
+      <h3 id="profile-preview-groups-title">Common groups <span>${groups.length}</span></h3>
+      ${groups.length
+        ? `<ul>${groups.map((group) => `<li>${esc(group.name)}</li>`).join('')}</ul>`
+        : '<p>No common groups.</p>'}
+    </section>
+    <div class="profile-preview-tabs" role="tablist" aria-label="Shared content">
+      ${tabs.map(([key, title, count]) => `
+        <button type="button" role="tab" id="profile-tab-${key}" aria-selected="${state.profilePreviewTab === key}"
+          aria-controls="profile-preview-shared" data-preview-tab="${key}">${title}<span>${count}</span></button>`).join('')}
+    </div>
+    <section id="profile-preview-shared" class="profile-preview-shared" role="tabpanel"
+      aria-labelledby="profile-tab-${state.profilePreviewTab}" tabindex="0">
+      ${state.profilePreviewTab === 'media'
+        ? activeItems.length
+          ? `<div class="profile-media-grid">${activeItems.map((item, index) => `
+            <button type="button" class="profile-media-item" data-lightbox-index="${index}"
+              aria-label="Open ${item.media_type?.startsWith('video/') ? 'video' : 'image'} ${index + 1} of ${activeItems.length}">
+              ${item.media_type?.startsWith('video/')
+                ? `<video muted preload="none" src="${esc(item.media_url ?? '')}"></video><span aria-hidden="true">▶</span>`
+                : `<img src="${esc(item.media_url ?? '')}" alt="${esc(item.file_name ?? 'Shared image')}" loading="lazy" />`}
+            </button>`).join('')}</div>`
+          : '<p class="profile-preview-empty">No shared photos or videos yet.</p>'
+        : state.profilePreviewTab === 'links'
+          ? activeItems.length
+            ? `<ul class="profile-preview-list">${activeItems.map((item) => {
+              let link = '';
+              try {
+                const url = new URL(item.url);
+                if (['http:', 'https:'].includes(url.protocol)) link = url.href;
+              } catch { /* Invalid links are omitted. */ }
+              return link ? `<li><a href="${esc(link)}" target="_blank" rel="noopener noreferrer">${esc(item.url)}</a>
+                <small>${esc(item.chat_name)} · ${esc(formatPreviewDate(item.created_at))}</small></li>` : '';
+            }).join('')}</ul>`
+            : '<p class="profile-preview-empty">No shared links yet.</p>'
+          : activeItems.length
+            ? `<ul class="profile-preview-list">${activeItems.map((item) => `
+              <li><a href="${esc(item.media_url ?? '')}" target="_blank" rel="noopener noreferrer">
+                <span aria-hidden="true">↧</span> ${esc(item.file_name ?? 'Shared file')}</a>
+                <small>${esc(item.chat_name)} · ${esc(formatPreviewDate(item.created_at))}</small></li>`).join('')}</ul>`
+            : '<p class="profile-preview-empty">No shared files yet.</p>'}
+    </section>
+    ${contextChatId && groups.some((group) => group.id === contextChatId) ? `
+      <section class="profile-preview-safety" aria-label="Group safety actions">
+        <button type="button" class="danger-action" data-preview-block>
+          ${preview.blocked ? 'Unblock' : 'Block'} ${esc(profile.display_name)}
+        </button>
+        <button type="button" class="danger-action" data-preview-report>Report</button>
+      </section>` : ''}
+  `;
+}
+
+function renderProfilePreview() {
+  const content = $('profile-preview-content');
+  if (!content || !state.profilePreview) return;
+  content.innerHTML = profilePreviewMarkup(state.profilePreview, state.profilePreviewContextChatId);
+}
+
+function closeProfileLightbox() {
+  const viewer = $('profile-lightbox');
+  $('profile-lightbox').hidden = true;
+  viewer.querySelector('.lightbox-content').replaceChildren();
+  if (state.profileLightboxOrigin?.isConnected) {
+    state.profileLightboxOrigin.focus({ preventScroll: true });
+  }
+  state.profileLightboxOrigin = null;
+  state.profileLightboxIndex = -1;
+}
+
+function renderProfileLightbox(index) {
+  const media = state.profilePreview?.shared_media ?? [];
+  if (!media.length) return;
+  const viewer = $('profile-lightbox');
+  if (viewer.hidden) {
+    state.profileLightboxOrigin = document.activeElement;
+    viewer.hidden = false;
+    viewer.querySelector('.lightbox-close').focus({ preventScroll: true });
+  }
+  state.profileLightboxIndex = (index + media.length) % media.length;
+  const item = media[state.profileLightboxIndex];
+  const content = viewer.querySelector('.lightbox-content');
+  const source = esc(item.media_url ?? '');
+  content.innerHTML = item.media_type?.startsWith('video/')
+    ? `<video controls autoplay src="${source}"></video>`
+    : `<img src="${source}" alt="${esc(item.file_name ?? 'Shared image')}" />`;
+  viewer.querySelector('.lightbox-count').textContent = `${state.profileLightboxIndex + 1} / ${media.length}`;
+}
+
+async function openProfilePreview(userId, contextChatId = null, origin = null) {
+  if (!userId || userId === state.session?.user?.id) return;
+  if ($('profile-preview').hidden) {
+    const messageList = $('message-list');
+    state.profilePreviewOrigin = origin ?? document.activeElement;
+    state.profilePreviewScroll = {
+      windowX: window.scrollX,
+      windowY: window.scrollY,
+      chatList: $('chat-list')?.scrollTop ?? 0,
+      messages: messageList?.scrollTop ?? 0,
+      bodyOverflow: document.body.style.overflow,
+    };
+  }
+  const sequence = ++state.profilePreviewSequence;
+  state.profilePreview = null;
+  state.profilePreviewContextChatId = contextChatId;
+  state.profilePreviewTab = 'media';
+  closeProfileLightbox();
+  const backdrop = $('profile-preview');
+  backdrop.hidden = false;
+  backdrop.setAttribute('aria-hidden', 'false');
+  document.body.style.overflow = 'hidden';
+  $('profile-preview-content').innerHTML = '<p class="profile-preview-loading" role="status">Loading profile…</p>';
+  $('profile-preview-close').focus({ preventScroll: true });
+
+  try {
+    const preview = await getProfilePreview(userId);
+    if (sequence !== state.profilePreviewSequence || backdrop.hidden) return;
+    const items = preview.shared_media ?? [];
+    const fileItems = preview.shared_files ?? [];
+    const allPaths = [...new Set([
+      ...items.map((item) => item.media_path),
+      ...fileItems.map((item) => item.media_path),
+    ].filter(Boolean))];
+    if (allPaths.length) {
+      try {
+        const signed = await signedMediaUrls('chat-media', allPaths);
+        const urlByPath = new Map(signed.map((entry) => [
+          entry.path,
+          entry.signedUrl ?? entry.signedURL,
+        ]));
+        preview.shared_media = items.map((item) => ({
+          ...item,
+          media_url: urlByPath.get(item.media_path) ?? null,
+        }));
+        preview.shared_files = fileItems.map((item) => ({
+          ...item,
+          media_url: urlByPath.get(item.media_path) ?? null,
+        }));
+      } catch {
+        preview.shared_media = items.map((item) => ({ ...item, media_url: null }));
+        preview.shared_files = fileItems.map((item) => ({ ...item, media_url: null }));
+      }
+    }
+    if (sequence !== state.profilePreviewSequence || backdrop.hidden) return;
+    state.profilePreview = preview;
+    renderProfilePreview();
+  } catch (error) {
+    if (sequence !== state.profilePreviewSequence || backdrop.hidden) return;
+    $('profile-preview-content').innerHTML = `
+      <p class="profile-preview-error" role="alert">Could not load this profile: ${esc(friendlyError(error))}</p>`;
+  }
+}
+
+function closeProfilePreview(restoreFocus = true) {
+  const backdrop = $('profile-preview');
+  if (backdrop.hidden) return;
+  state.profilePreviewSequence += 1;
+  closeProfileLightbox();
+  backdrop.hidden = true;
+  backdrop.setAttribute('aria-hidden', 'true');
+  document.body.style.overflow = state.profilePreviewScroll?.bodyOverflow ?? '';
+  const scroll = state.profilePreviewScroll;
+  if (scroll) {
+    window.scrollTo(scroll.windowX, scroll.windowY);
+    const chatList = $('chat-list');
+    const messages = $('message-list');
+    if (chatList) chatList.scrollTop = scroll.chatList;
+    if (messages) messages.scrollTop = scroll.messages;
+  }
+  if (restoreFocus && state.profilePreviewOrigin?.isConnected) {
+    state.profilePreviewOrigin.focus({ preventScroll: true });
+  }
+  state.profilePreview = null;
+  state.profilePreviewContextChatId = null;
+  state.profilePreviewOrigin = null;
+  state.profilePreviewScroll = null;
 }
 
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
@@ -877,6 +1157,18 @@ async function initialiseWorkspace(session) {
   $('auth-panel').hidden = true;
   $('app-shell').hidden = false;
   try {
+    try {
+      await touchMyPresence();
+    } catch (presenceError) {
+      console.warn('Could not update last-seen time.', presenceError);
+    }
+    if (state.session?.user?.id !== userId) return;
+    clearInterval(state.presenceInterval);
+    state.presenceInterval = setInterval(() => {
+      if (state.session?.user?.id === userId && document.visibilityState === 'visible') {
+        void touchMyPresence().catch(() => {});
+      }
+    }, 60_000);
     const profile = await getProfile(userId);
     if (state.session?.user?.id !== userId) return;
     state.profile = profile;
@@ -1034,11 +1326,12 @@ async function openGroupDetails() {
       <button class="secondary-button" id="share-group-invite" type="button">Share link</button>
     </div>` : ''}
     ${!isChannel ? `<div class="group-members"><h3>Members</h3>${members.map((member) => `
-      <div class="group-member">
-        ${avatar(member.display_name, member.id)}
+      <button class="group-member profile-preview-trigger" type="button"
+        data-profile-preview-id="${esc(member.id)}" data-profile-preview-context="${esc(chat.chat_id)}">
+        ${avatar(member.display_name, member.id, member.avatar_path)}
         <span><strong>${esc(member.display_name)}</strong><small>@${esc(member.username)}</small></span>
         <small class="member-role">${esc(member.role ?? 'member')}</small>
-      </div>`).join('')}</div>` : ''}
+      </button>`).join('')}</div>` : ''}
     ${isAdmin ? `<form id="chat-settings-form" class="feature-form chat-settings-form">
       <h3>${isChannel ? 'Channel settings' : 'Group settings'}</h3>
       <label>${isChannel ? 'Channel name' : 'Group name'}
@@ -1280,6 +1573,138 @@ function wire() {
       await signOut();
     } catch (error) {
       showToast(friendlyError(error));
+    }
+  });
+
+  $('profile-preview-close').addEventListener('click', () => closeProfilePreview());
+  $('profile-preview').addEventListener('click', (event) => {
+    if (event.target === event.currentTarget) closeProfilePreview();
+  });
+  $('profile-preview-content').addEventListener('click', async (event) => {
+    const tab = event.target.closest('[data-preview-tab]');
+    if (tab) {
+      state.profilePreviewTab = tab.dataset.previewTab;
+      renderProfilePreview();
+      $(`#profile-tab-${state.profilePreviewTab}`)?.focus();
+      return;
+    }
+    const mediaButton = event.target.closest('[data-lightbox-index]');
+    if (mediaButton) {
+      renderProfileLightbox(Number(mediaButton.dataset.lightboxIndex));
+      return;
+    }
+    const messageButton = event.target.closest('[data-preview-message]');
+    if (messageButton && state.profilePreview?.profile) {
+      const person = state.profilePreview.profile;
+      closeProfilePreview(false);
+      await openPersonChat(person, messageButton);
+      return;
+    }
+    const muteButton = event.target.closest('[data-preview-mute]');
+    if (muteButton && state.profilePreview) {
+      muteButton.disabled = true;
+      try {
+        state.profilePreview.muted = await setProfilePreviewMuted(
+          state.profilePreview.profile.id,
+          !state.profilePreview.muted,
+        );
+        renderProfilePreview();
+        $('[data-preview-mute]')?.focus();
+        showToast(state.profilePreview.muted ? 'Profile muted.' : 'Profile unmuted.');
+      } catch (error) {
+        muteButton.disabled = false;
+        showToast(`Could not update mute settings: ${friendlyError(error)}`);
+      }
+      return;
+    }
+    const blockButton = event.target.closest('[data-preview-block]');
+    if (blockButton && state.profilePreview) {
+      blockButton.disabled = true;
+      try {
+        state.profilePreview.blocked = await setProfilePreviewBlocked(
+          state.profilePreview.profile.id,
+          !state.profilePreview.blocked,
+        );
+        renderProfilePreview();
+        $('[data-preview-block]')?.focus();
+        showToast(state.profilePreview.blocked ? 'Profile blocked.' : 'Profile unblocked.');
+      } catch (error) {
+        blockButton.disabled = false;
+        showToast(`Could not update block settings: ${friendlyError(error)}`);
+      }
+      return;
+    }
+    const reportButton = event.target.closest('[data-preview-report]');
+    if (reportButton && state.profilePreview && state.profilePreviewContextChatId) {
+      reportButton.disabled = true;
+      try {
+        await reportProfilePreview(
+          state.profilePreview.profile.id,
+          state.profilePreviewContextChatId,
+        );
+        showToast('Report submitted.');
+      } catch (error) {
+        reportButton.disabled = false;
+        showToast(`Could not submit report: ${friendlyError(error)}`);
+      }
+    }
+  });
+  $('profile-lightbox').addEventListener('click', (event) => {
+    if (event.target === event.currentTarget || event.target.closest('.lightbox-close')) {
+      closeProfileLightbox();
+      return;
+    }
+    if (event.target.closest('.lightbox-previous')) {
+      renderProfileLightbox(state.profileLightboxIndex - 1);
+      return;
+    }
+    if (event.target.closest('.lightbox-next')) renderProfileLightbox(state.profileLightboxIndex + 1);
+  });
+  document.addEventListener('click', (event) => {
+    const trigger = event.target.closest('.profile-preview-trigger[data-profile-preview-id]');
+    if (!trigger) return;
+    event.preventDefault();
+    void openProfilePreview(
+      trigger.dataset.profilePreviewId,
+      trigger.dataset.profilePreviewContext ?? null,
+      trigger,
+    );
+  });
+  document.addEventListener('keydown', (event) => {
+    const previewOpen = !$('profile-preview').hidden;
+    if (event.key === 'Escape' && previewOpen) {
+      event.preventDefault();
+      if (!$('profile-lightbox').hidden) closeProfileLightbox();
+      else closeProfilePreview();
+      return;
+    }
+    if (event.key === 'Tab' && previewOpen) {
+      const scope = $('profile-lightbox').hidden ? $('profile-preview-panel') : $('profile-lightbox');
+      const focusable = [...scope.querySelectorAll(
+        'button:not([disabled]), a[href], input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )].filter((element) => element.getClientRects().length > 0);
+      if (focusable.length) {
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      } else {
+        event.preventDefault();
+        scope.focus();
+      }
+    }
+    if ($('profile-lightbox').hidden) return;
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      renderProfileLightbox(state.profileLightboxIndex - 1);
+    } else if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      renderProfileLightbox(state.profileLightboxIndex + 1);
     }
   });
 

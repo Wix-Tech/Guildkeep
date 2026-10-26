@@ -62,6 +62,48 @@ export async function getProfile(userId) {
   return data;
 }
 
+export async function getProfilePreview(userId) {
+  const { data, error } = await client().rpc('profile_preview', {
+    target_user_id: userId,
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function touchMyPresence() {
+  const { data, error } = await client().rpc('touch_my_presence');
+  if (error) throw error;
+  return data;
+}
+
+export async function setProfilePreviewMuted(userId, muted) {
+  const { data, error } = await client().rpc('set_profile_preview_muted', {
+    target_user_id: userId,
+    new_muted: muted,
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function setProfilePreviewBlocked(userId, blocked) {
+  const { data, error } = await client().rpc('set_profile_preview_blocked', {
+    target_user_id: userId,
+    new_blocked: blocked,
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function reportProfilePreview(userId, chatId, reason = '') {
+  const { data, error } = await client().rpc('report_profile_preview', {
+    target_user_id: userId,
+    context_chat_id: chatId,
+    report_reason: reason,
+  });
+  if (error) throw error;
+  return data;
+}
+
 export async function listChats() {
   const { data, error } = await client().rpc('list_my_chats');
   if (error) throw error;
@@ -147,6 +189,13 @@ export async function signedMediaUrl(bucket, path) {
   const { data, error } = await storage().from(bucket).createSignedUrl(path, 3600);
   if (error) throw error;
   return data.signedUrl;
+}
+
+export async function signedMediaUrls(bucket, paths) {
+  if (!paths.length) return [];
+  const { data, error } = await storage().from(bucket).createSignedUrls(paths, 3600);
+  if (error) throw error;
+  return data ?? [];
 }
 
 export function publicAvatarUrl(path) {

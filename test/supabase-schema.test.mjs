@@ -70,6 +70,14 @@ test(
         new URL('../db/supabase/005_chat_and_status_settings.sql', import.meta.url),
         'utf8',
       );
+      const profilePreviewMigration = await readFile(
+        new URL('../db/supabase/006_profile_preview.sql', import.meta.url),
+        'utf8',
+      );
+      const profilePreviewDownMigration = await readFile(
+        new URL('../db/supabase/006_profile_preview.down.sql', import.meta.url),
+        'utf8',
+      );
       const publicationSetup = migration.lastIndexOf('\ndo $$') + 1;
       assert.ok(publicationSetup > 1, 'migration should configure Realtime publication');
       await db.exec(migration.slice(0, publicationSetup));
@@ -88,6 +96,8 @@ test(
         + channelsMigration.slice(channelsPublicationEnd),
       );
       await db.exec(settingsMigration);
+      await db.exec(profilePreviewMigration);
+      await db.exec(profilePreviewMigration);
 
       const userA = '00000000-0000-4000-8000-000000000001';
       const userB = '00000000-0000-4000-8000-000000000002';
@@ -508,7 +518,109 @@ test(
         [chatId, userA],
       );
       const { rows: pinnedChats } = await db.query(`select * from public.list_my_chats()`);
-      assert.equal(pinnedChats[0].pinned, true);
+      assert.equal(pinnedChats.find((chat) => chat.chat_id === chatId).pinned, true);
+
+      const profilePreviewGroup = (await db.query(
+        `select public.create_group('Profile preview group', array['sam_two']) as chat_id`,
+      )).rows[0].chat_id;
+      const outsiderGroup = (await db.query(
+        `select public.create_group('Not a common group', array['outside']) as chat_id`,
+      )).rows[0].chat_id;
+      const outsiderOnlyPath = `${outsiderGroup}/${userA}/outsider-only.png`;
+      await db.query(
+        `insert into public.messages (chat_id, sender_id, body, media_path, media_type, file_name)
+         values ($1, $2, 'Secret from a non-common chat', $3, 'image/png', 'private.png')`,
+        [outsiderGroup, userA, outsiderOnlyPath],
+      );
+      await db.query(
+        `select * from public.run_group_command($1, '/kick @outside')`,
+        [outsiderGroup],
+      );
+      await db.query(
+        `insert into public.messages (chat_id, sender_id, body, media_path, media_type, file_name)
+         values ($1, $2, 'Shared link https://example.test/plan', $3, 'image/png', 'shared.png')`,
+        [profilePreviewGroup, userA, `${profilePreviewGroup}/${userA}/shared.png`],
+      );
+      await db.query(
+        `insert into public.messages (chat_id, sender_id, body, media_path, media_type, file_name)
+         values ($1, $2, '', $3, 'application/pdf', 'shared-notes.pdf')`,
+        [profilePreviewGroup, userA, `${profilePreviewGroup}/${userA}/shared-notes.pdf`],
+      );
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
+      await db.query(`select public.touch_my_presence()`);
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
+      const { rows: previewRows } = await db.query(
+        `select public.profile_preview($1) as preview`,
+        [userB],
+      );
+      const preview = previewRows[0].preview;
+      assert.deepEqual(Object.keys(preview).sort(), [
+        'blocked', 'common_groups', 'last_seen_at', 'muted',
+        'profile', 'shared_files', 'shared_links', 'shared_media',
+      ]);
+      assert.equal(preview.profile.username, 'sam_two');
+      assert.ok(preview.last_seen_at);
+      assert.deepEqual(preview.common_groups.map((group) => group.name), ['Profile preview group']);
+      assert.ok(preview.shared_media.some((item) => item.file_name === 'shared.png'));
+      assert.ok(!preview.shared_media.some((item) => item.media_path === outsiderOnlyPath));
+      assert.ok(preview.shared_links.some((item) => item.body.includes('https://example.test/plan')));
+      assert.ok(preview.shared_files.some((item) => item.file_name === 'shared-notes.pdf'));
+      const { rows: previewFunction } = await db.query(
+        `select prosecdef, proconfig from pg_proc
+         where oid = 'public.profile_preview(uuid)'::regprocedure`,
+      );
+      assert.equal(previewFunction[0].prosecdef, true, 'preview query must run behind server-side access checks');
+      assert.ok(previewFunction[0].proconfig.includes('search_path=""'));
+      await assert.rejects(
+        db.query(`select public.profile_preview($1)`, [outsider]),
+        /profile is not available/i,
+      );
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
+      await db.query(`select public.set_profile_preview_muted($1, true)`, [userA]);
+      await db.query(`select public.set_profile_preview_blocked($1, true)`, [userA]);
+      const { rows: mutedPreview } = await db.query(
+        `select public.profile_preview($1) as preview`,
+        [userA],
+      );
+      assert.equal(mutedPreview[0].preview.muted, true);
+      assert.equal(mutedPreview[0].preview.blocked, true);
+      const { rows: ownBlockState } = await db.query(
+        `select public.is_profile_blocked_between($1, $2) as blocked`,
+        [userA, userB],
+      );
+      assert.equal(ownBlockState[0].blocked, true);
+      const { rows: unrelatedBlockState } = await db.query(
+        `select public.is_profile_blocked_between($1, $2) as blocked`,
+        [userA, outsider],
+      );
+      assert.equal(unrelatedBlockState[0].blocked, false);
+      await assert.rejects(
+        db.query(
+          `insert into public.messages (chat_id, sender_id, body)
+           values ($1, $2, 'Blocked direct message')`,
+          [chatId, userB],
+        ),
+        /row-level security/i,
+      );
+      await db.query(`select public.set_profile_preview_blocked($1, false)`, [userA]);
+      await db.query(
+        `select public.report_profile_preview($1, $2, 'Group safety concern')`,
+        [userA, profilePreviewGroup],
+      );
+      await assert.rejects(
+        db.query(`select public.report_profile_preview($1, $2, '')`, [userA, outsiderGroup]),
+        /shared group is required/i,
+      );
+      const { rows: otherUsersSettings } = await db.query(
+        `select user_id from public.profile_preview_settings where user_id = $1`,
+        [userA],
+      );
+      assert.deepEqual(otherUsersSettings, [], 'profile settings must remain private to their owner');
+      await assert.rejects(
+        db.query(`select * from public.profile_preview_reports`),
+        /permission denied/i,
+      );
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
 
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [outsider]);
       const { rows: hiddenStatuses } = await db.query(
@@ -545,6 +657,17 @@ test(
         ),
         /row-level security|not a member/i,
       );
+      await db.exec('reset role');
+      await db.exec(profilePreviewDownMigration);
+      const { rows: removedProfilePreview } = await db.query(
+        `select to_regclass('public.profile_preview_settings') as settings`,
+      );
+      assert.equal(removedProfilePreview[0].settings, null);
+      const { rows: removedPresence } = await db.query(
+        `select column_name from information_schema.columns
+         where table_schema = 'public' and table_name = 'profiles' and column_name = 'last_seen_at'`,
+      );
+      assert.deepEqual(removedPresence, []);
     } finally {
       await db.close();
     }
