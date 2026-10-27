@@ -31,6 +31,7 @@ import {
   listChatReactions,
   listContactStatuses,
   listMessages,
+  listMessagesAround,
   listMyChannels,
   markChatRead,
   listChatReadReceipts,
@@ -38,6 +39,7 @@ import {
   runGroupCommand,
   sendMessage,
   searchProfiles,
+  searchMessages,
   setChatPinned,
   signedMediaUrl,
   signedMediaUrls,
@@ -126,6 +128,18 @@ const state = {
   onlineUserIds: new Set(),
   directPeerProfile: null,
   readAckInFlightChatId: null,
+  messageSearch: {
+    timer: null,
+    sequence: 0,
+    term: '',
+    scope: 'global',
+    offset: 0,
+    results: [],
+    selectedIndex: 0,
+    origin: null,
+    previousOverflow: '',
+  },
+  searchJump: null,
 };
 
 const esc = (value) =>
@@ -725,7 +739,9 @@ function renderMessages() {
             <strong>${esc(replyTo.deleted_at ? 'Message deleted' : (replyTo.sender?.display_name ?? 'Message'))}</strong>
             <span>${esc(replyTo.deleted_at ? 'Message deleted' : (replyTo.body || 'Attachment'))}</span>
           </button>` : ''}
-          ${message.body ? `<span class="message-text">${esc(message.body)}</span>` : ''}
+          ${message.body ? `<span class="message-text">${state.searchJump?.messageId === message.id
+            ? highlightSearchText(message.body, state.searchJump.term)
+            : esc(message.body)}</span>` : ''}
           ${media}
           <span class="message-meta">${message.edited_at ? 'edited · ' : ''}${esc(formatMessageTime(message.created_at))}
             ${own && state.activeChat?.chat_type === 'direct'
@@ -780,11 +796,174 @@ async function scrollToMessage(messageId) {
   }
   if (!target) return;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  target.focus({ preventScroll: true });
   target.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
   target.classList.remove('message-flash');
   void target.offsetWidth;
   target.classList.add('message-flash');
-  setTimeout(() => target.classList.remove('message-flash'), 1400);
+  setTimeout(() => target.classList.remove('message-flash'), 2000);
+}
+
+function renderSearchSnippet(snippet) {
+  const parsed = new DOMParser().parseFromString(`<body>${snippet ?? ''}</body>`, 'text/html');
+  const safeNodes = (nodes) => [...nodes].map((node) => {
+    if (node.nodeType === Node.TEXT_NODE) return esc(node.nodeValue);
+    const children = safeNodes(node.childNodes);
+    return node.nodeName === 'MARK' ? `<mark>${children}</mark>` : children;
+  }).join('');
+  return safeNodes(parsed.body.childNodes);
+}
+
+function highlightSearchText(text, term) {
+  const words = [...new Set(term.toLowerCase().split(/[^\p{L}\p{N}_]+/u).filter((word) => word.length >= 2))].slice(0, 8);
+  if (!words.length) return esc(text);
+  const pattern = new RegExp(
+    `(${words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`,
+    'giu',
+  );
+  return String(text).split(pattern).map((part) =>
+    words.some((word) => part.toLowerCase() === word) ? `<mark>${esc(part)}</mark>` : esc(part),
+  ).join('');
+}
+
+function renderMessageSearchResults() {
+  const { results, selectedIndex, offset } = state.messageSearch;
+  const container = $('message-search-results');
+  if (!results.length) {
+    container.innerHTML = '';
+    $('message-search-position').textContent = '0 results';
+    $('message-search-status').textContent = 'No matching messages found.';
+    return;
+  }
+  container.innerHTML = results.map((result, index) => `
+    <button type="button" class="message-search-result ${index === selectedIndex ? 'is-selected' : ''}"
+      data-message-search-result="${index}" aria-current="${index === selectedIndex ? 'true' : 'false'}">
+      <span class="message-search-result-meta">
+        <strong>${esc(result.chat_name || 'Conversation')}</strong>
+        <time>${esc(new Date(result.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }))}</time>
+      </span>
+      <span class="message-search-result-snippet">${renderSearchSnippet(result.snippet)}</span>
+    </button>`).join('');
+  $('message-search-position').textContent =
+    `${offset + selectedIndex + 1}–${offset + results.length} results`;
+  $('message-search-status').textContent = `${results.length} matching messages loaded. Select one to jump to it.`;
+}
+
+async function loadMessageSearchResults() {
+  const search = state.messageSearch;
+  clearTimeout(search.timer);
+  const query = $('message-search-query').value.trim();
+  search.term = query;
+  const sequence = ++search.sequence;
+  $('message-search-results').innerHTML = '';
+  search.results = [];
+  search.selectedIndex = 0;
+  if (query.length < 2) {
+    $('message-search-position').textContent = '0 results';
+    $('message-search-status').textContent = 'Enter at least 2 characters to search.';
+    return;
+  }
+  if (query.length > 100) {
+    $('message-search-status').textContent = 'Search queries are limited to 100 characters.';
+    return;
+  }
+  if (search.scope === 'chat' && !state.activeChatId) {
+    $('message-search-status').textContent = 'Open a conversation to search within it.';
+    return;
+  }
+  $('message-search-status').textContent = 'Searching messages…';
+  try {
+    const results = await searchMessages(
+      query,
+      search.scope === 'chat' ? state.activeChatId : null,
+      25,
+      search.offset,
+    );
+    if (sequence !== search.sequence || $('message-search-overlay').hidden) return;
+    search.results = results;
+    renderMessageSearchResults();
+  } catch (error) {
+    if (sequence !== search.sequence) return;
+    $('message-search-status').textContent = `Could not search messages: ${friendlyError(error)}`;
+  }
+}
+
+function scheduleMessageSearch() {
+  clearTimeout(state.messageSearch.timer);
+  state.messageSearch.timer = setTimeout(() => void loadMessageSearchResults(), 250);
+}
+
+function openMessageSearch(scope = 'global') {
+  const overlay = $('message-search-overlay');
+  const search = state.messageSearch;
+  search.origin = document.activeElement;
+  search.previousOverflow = document.body.style.overflow;
+  search.scope = scope === 'chat' && state.activeChatId ? 'chat' : 'global';
+  search.offset = 0;
+  search.results = [];
+  overlay.hidden = false;
+  document.body.style.overflow = 'hidden';
+  document.querySelectorAll('[data-message-search-scope]').forEach((button) => {
+    button.setAttribute('aria-pressed', String(button.dataset.messageSearchScope === search.scope));
+    button.disabled = button.dataset.messageSearchScope === 'chat' && !state.activeChatId;
+  });
+  $('message-search-query').value = search.term;
+  $('message-search-status').textContent = search.term.length >= 2
+    ? 'Searching messages…'
+    : 'Enter at least 2 characters to search.';
+  $('message-search-panel').focus();
+  $('message-search-query').focus({ preventScroll: true });
+  if (search.term.length >= 2) void loadMessageSearchResults();
+}
+
+function closeMessageSearch(restoreFocus = true) {
+  const overlay = $('message-search-overlay');
+  if (overlay.hidden) return;
+  clearTimeout(state.messageSearch.timer);
+  state.messageSearch.sequence += 1;
+  overlay.hidden = true;
+  document.body.style.overflow = state.messageSearch.previousOverflow;
+  if (restoreFocus && state.messageSearch.origin?.isConnected) {
+    state.messageSearch.origin.focus({ preventScroll: true });
+  }
+}
+
+async function jumpToSearchResult(result) {
+  const search = state.messageSearch;
+  closeMessageSearch(false);
+  const view = result.chat_type === 'group' ? 'groups'
+    : result.chat_type === 'channel' ? 'channels' : 'chats';
+  if (state.currentView !== view) updateNavigation(view);
+  const chat = [...state.chats, ...state.channels, ...state.discoveredChannels]
+    .find((item) => item.chat_id === result.chat_id) ?? {
+      chat_id: result.chat_id,
+      chat_name: result.chat_name || 'Conversation',
+      chat_type: result.chat_type,
+      is_group: result.chat_type !== 'direct',
+      participants: [],
+      my_role: null,
+    };
+  if (state.activeChatId !== result.chat_id) await openChat(result.chat_id, chat);
+  if (state.activeChatId !== result.chat_id) return;
+  if (!state.messages.some((message) => message.id === result.message_id)) {
+    try {
+      const [windowMessages, exactMessage] = await Promise.all([
+        listMessagesAround(result.chat_id, result.created_at, 240),
+        getMessage(result.chat_id, result.message_id),
+      ]);
+      if (state.activeChatId !== result.chat_id) return;
+      state.messages = await hydrateMessages([...windowMessages, exactMessage]);
+      state.messages.sort(compareMessageOrder);
+      state.reactions = new Map();
+      renderMessages();
+    } catch (error) {
+      showToast(`Could not load older messages: ${friendlyError(error)}`);
+      return;
+    }
+  }
+  state.searchJump = { messageId: result.message_id, term: search.term };
+  renderMessages();
+  await scrollToMessage(result.message_id);
 }
 
 function renderMessageMedia(message) {
@@ -1138,6 +1317,10 @@ function renderConversation() {
           <span id="chat-presence" class="chat-presence"></span>
           <span id="chat-typing" class="chat-typing" hidden></span>
         </div>
+        <button class="icon-button message-search-chat" type="button" data-open-message-search="chat"
+          aria-label="Search this conversation" title="Search this conversation">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>
+        </button>
         ${type !== 'direct' ? '<button id="group-info" class="icon-button group-info-button" type="button" aria-label="Conversation details" title="Conversation details">⋯</button>' : ''}
       </header>
       <div class="conversation-body" id="message-list" aria-live="polite"></div>
@@ -1267,8 +1450,8 @@ async function refreshChats() {
   }
 }
 
-async function openChat(chatId) {
-  const chat = [...state.chats, ...state.channels, ...state.discoveredChannels]
+async function openChat(chatId, chatOverride = null) {
+  const chat = chatOverride ?? [...state.chats, ...state.channels, ...state.discoveredChannels]
     .find((item) => item.chat_id === chatId);
   if (!chat) return;
   stopChatLive();
@@ -1368,7 +1551,11 @@ async function openChat(chatId) {
     } catch (error) {
       showToast(`Could not load read receipts: ${friendlyError(error)}`);
     }
-    await refreshReactions(chatId);
+    if (!(chatOverride?.chat_type === 'channel'
+      && !chatOverride.my_role
+      && !chatOverride.participants?.some((person) => person.id === state.session.user.id))) {
+      await refreshReactions(chatId);
+    }
     renderMessages();
     await refreshChats();
   } catch (error) {
@@ -2045,6 +2232,50 @@ function wire() {
     }
   });
 
+  $('message-search-close').addEventListener('click', () => closeMessageSearch());
+  $('message-search-overlay').addEventListener('click', (event) => {
+    if (event.target === event.currentTarget) closeMessageSearch();
+  });
+  $('message-search-query').addEventListener('input', () => {
+    state.messageSearch.offset = 0;
+    scheduleMessageSearch();
+  });
+  $('message-search-scope').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-message-search-scope]');
+    if (!button || button.disabled) return;
+    state.messageSearch.scope = button.dataset.messageSearchScope;
+    state.messageSearch.offset = 0;
+    document.querySelectorAll('[data-message-search-scope]').forEach((item) => {
+      item.setAttribute('aria-pressed', String(item === button));
+    });
+    void loadMessageSearchResults();
+  });
+  $('message-search-results').addEventListener('click', (event) => {
+    const resultButton = event.target.closest('[data-message-search-result]');
+    if (!resultButton) return;
+    const index = Number(resultButton.dataset.messageSearchResult);
+    state.messageSearch.selectedIndex = index;
+    void jumpToSearchResult(state.messageSearch.results[index]);
+  });
+  $('message-search-overlay').addEventListener('click', (event) => {
+    const step = event.target.closest('[data-message-search-step]');
+    if (step && state.messageSearch.results.length) {
+      const { results, selectedIndex } = state.messageSearch;
+      const direction = Number(step.dataset.messageSearchStep);
+      const nextIndex = (selectedIndex + direction + results.length) % results.length;
+      state.messageSearch.selectedIndex = nextIndex;
+      void jumpToSearchResult(results[nextIndex]);
+      return;
+    }
+    const page = event.target.closest('[data-message-search-page]');
+    if (!page) return;
+    const nextOffset = state.messageSearch.offset + Number(page.dataset.messageSearchPage) * 25;
+    if (nextOffset < 0 || nextOffset > 5000 || (Number(page.dataset.messageSearchPage) > 0
+      && state.messageSearch.results.length < 25)) return;
+    state.messageSearch.offset = nextOffset;
+    void loadMessageSearchResults();
+  });
+
   $('profile-preview-close').addEventListener('click', () => closeProfilePreview());
   $('profile-preview').addEventListener('click', (event) => {
     if (event.target === event.currentTarget) closeProfilePreview();
@@ -2130,6 +2361,11 @@ function wire() {
     if (event.target.closest('.lightbox-next')) renderProfileLightbox(state.profileLightboxIndex + 1);
   });
   document.addEventListener('click', (event) => {
+    const searchTrigger = event.target.closest('[data-open-message-search]');
+    if (searchTrigger) {
+      openMessageSearch(searchTrigger.dataset.openMessageSearch);
+      return;
+    }
     const reactionPanel = $('reaction-details');
     if (!reactionPanel.hidden && !event.target.closest('#reaction-details, [data-reaction-details]')) {
       closeReactionDetails();
@@ -2144,6 +2380,33 @@ function wire() {
     );
   });
   document.addEventListener('keydown', (event) => {
+    const searchOpen = !$('message-search-overlay').hidden;
+    if (event.key === 'Escape' && searchOpen) {
+      event.preventDefault();
+      closeMessageSearch();
+      return;
+    }
+    if (event.key === 'Tab' && searchOpen) {
+      const scope = $('message-search-panel');
+      const focusable = [...scope.querySelectorAll(
+        'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )].filter((element) => element.getClientRects().length > 0);
+      if (focusable.length) {
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      } else {
+        event.preventDefault();
+        scope.focus();
+      }
+      return;
+    }
     if (event.key === 'Escape' && !$('reaction-details').hidden) {
       closeReactionDetails();
       return;

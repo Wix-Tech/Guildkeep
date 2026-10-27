@@ -117,6 +117,14 @@ test(
         new URL('../db/supabase/009_read_typing_presence.down.sql', import.meta.url),
         'utf8',
       );
+      const messageSearchMigration = await readFile(
+        new URL('../db/supabase/010_message_search.sql', import.meta.url),
+        'utf8',
+      );
+      const messageSearchDownMigration = await readFile(
+        new URL('../db/supabase/010_message_search.down.sql', import.meta.url),
+        'utf8',
+      );
       const publicationSetup = migration.lastIndexOf('\ndo $$') + 1;
       assert.ok(publicationSetup > 1, 'migration should configure Realtime publication');
       await db.exec(migration.slice(0, publicationSetup));
@@ -151,6 +159,8 @@ test(
       assert.match(readReceiptsMigration, /alter publication supabase_realtime add table public\.message_reads/i);
       await db.exec(readReceiptsMigration.slice(0, readReceiptsPublicationSetup));
       await db.exec(readReceiptsMigration.slice(0, readReceiptsPublicationSetup));
+      await db.exec(messageSearchMigration);
+      await db.exec(messageSearchMigration);
 
       const userA = '00000000-0000-4000-8000-000000000001';
       const userB = '00000000-0000-4000-8000-000000000002';
@@ -186,6 +196,10 @@ test(
         db.query(`select * from public.search_profiles('sam')`),
         /permission denied/i,
       );
+      await assert.rejects(
+        db.query(`select * from public.search_messages('hello')`),
+        /permission denied/i,
+      );
       await db.exec('set role authenticated');
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
       const { rows: chatRows } = await db.query(
@@ -203,6 +217,88 @@ test(
         [chatId, userA],
       );
       assert.ok(inserted[0].id);
+      const { rows: prefixMatches } = await db.query(
+        `select message_id, snippet from public.search_messages('hell', $1)`,
+        [chatId],
+      );
+      assert.deepEqual(prefixMatches.map((row) => row.message_id), [inserted[0].id], 'search terms match word prefixes');
+      assert.match(prefixMatches[0].snippet, /<mark>hello<\/mark>/i, 'search results return a highlighted snippet');
+      const { rows: substringMisses } = await db.query(
+        `select message_id from public.search_messages('ello', $1)`,
+        [chatId],
+      );
+      assert.deepEqual(substringMisses, [], 'search matches prefixes rather than arbitrary substrings');
+      const { rows: scopedMatches } = await db.query(
+        `select public.create_group('Search test group', '{}'::text[]) as other_chat_id`,
+      );
+      const otherChatId = scopedMatches[0].other_chat_id;
+      const { rows: otherMatch } = await db.query(
+        `insert into public.messages (chat_id, sender_id, body)
+         values ($1, $2, 'Hello from another chat')
+         returning id`,
+        [otherChatId, userA],
+      );
+      const { rows: currentChatOnly } = await db.query(
+        `select message_id from public.search_messages('hell', $1)`,
+        [chatId],
+      );
+      assert.deepEqual(currentChatOnly, [{ message_id: inserted[0].id }], 'current-chat search stays isolated');
+      const { rows: globalMatches } = await db.query(
+        `select message_id from public.search_messages('hell')`,
+      );
+      assert.deepEqual(
+        globalMatches.map((row) => row.message_id).sort(),
+        [inserted[0].id, otherMatch[0].id].sort(),
+        'global search includes the caller’s chats',
+      );
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [outsider]);
+      await assert.rejects(
+        db.query(`select * from public.search_messages('hell', $1)`, [chatId]),
+        /chat not found or access denied/i,
+      );
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
+      await db.query(`select set_config('request.jwt.claim.sub', '', false)`);
+      await assert.rejects(
+        db.query(`select * from public.search_messages('hell')`),
+        /authentication required/i,
+      );
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
+      await assert.rejects(
+        db.query(`select * from public.search_messages('x', $1)`, [chatId]),
+        /between 2 and 100/i,
+      );
+      await assert.rejects(
+        db.query(`select * from public.search_messages(repeat('x', 101), $1)`, [chatId]),
+        /between 2 and 100/i,
+      );
+      await assert.rejects(
+        db.query(`select * from public.search_messages('aa bb cc dd ee ff gg hh ii', $1)`, [chatId]),
+        /at most 8 words/i,
+      );
+      await assert.rejects(
+        db.query(`select * from public.search_messages('hell', $1, 51)`, [chatId]),
+        /invalid search page/i,
+      );
+      await assert.rejects(
+        db.query(`select * from public.search_messages('hell', $1, 25, 5001)`, [chatId]),
+        /invalid search page/i,
+      );
+      const { rows: secureSearchRpc } = await db.query(
+        `select prosecdef, proconfig from pg_proc
+         where oid = 'public.search_messages(text,uuid,integer,integer)'::regprocedure`,
+      );
+      assert.equal(secureSearchRpc[0].prosecdef, true);
+      assert.ok(secureSearchRpc[0].proconfig.includes('search_path=""'));
+      const { rows: searchIndex } = await db.query(
+        `select indexdef from pg_indexes
+         where schemaname = 'public' and indexname = 'messages_search_vector_gin'`,
+      );
+      assert.match(searchIndex[0].indexdef, /using gin \(search_vector\)/i);
+      const { rows: searchFunction } = await db.query(
+        `select pg_get_functiondef('public.search_messages(text,uuid,integer,integer)'::regprocedure) as definition`,
+      );
+      assert.match(searchFunction[0].definition, /message\.search_vector @@ search_query/i);
+      assert.match(searchFunction[0].definition, /message\.chat_id = target_chat_id/i);
       const { rows: latestVisibleMessage } = await db.query(
         `select id from public.messages where chat_id = $1
          order by created_at desc, id desc limit 1`,
@@ -335,6 +431,28 @@ test(
       assert.equal(channels[0].role, 'owner');
       assert.equal(channels[0].subscriber_count, 1);
       const createdChannelId = channels[0].chat_id;
+      const { rows: publicChannelMessage } = await db.query(
+        `insert into public.messages (chat_id, sender_id, body)
+         values ($1, $2, 'orchid public channel message')
+         returning id`,
+        [createdChannelId, userA],
+      );
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [outsider]);
+      const { rows: publicChannelSearch } = await db.query(
+        `select chat_id from public.search_messages('orchid')`,
+      );
+      assert.deepEqual(publicChannelSearch, [{ chat_id: createdChannelId }],
+        'global search includes public channels visible to the caller');
+      const { rows: publicChannelScopedSearch } = await db.query(
+        `select chat_id from public.search_messages('orchid', $1)`,
+        [createdChannelId],
+      );
+      assert.deepEqual(publicChannelScopedSearch, [{ chat_id: createdChannelId }],
+        'public channel search is scoped and remains visible without membership');
+      await db.exec('reset role');
+      await db.query(`delete from public.messages where id = $1`, [publicChannelMessage[0].id]);
+      await db.exec('set role authenticated');
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
       await db.query(
         `insert into storage.objects (bucket_id, name) values ('chat-avatars', $1)`,
         [`${createdChannelId}/${userA}/channel-avatar.png`],
@@ -909,6 +1027,13 @@ test(
         /row-level security|not a member/i,
       );
       await db.exec('reset role');
+      await db.exec(messageSearchDownMigration);
+      await db.exec(messageSearchDownMigration);
+      const { rows: removedMessageSearch } = await db.query(
+        `select column_name from information_schema.columns
+         where table_schema = 'public' and table_name = 'messages' and column_name = 'search_vector'`,
+      );
+      assert.deepEqual(removedMessageSearch, []);
       await db.exec(readReceiptsDownMigration);
       await db.exec(readReceiptsDownMigration);
       const { rows: removedReadReceipts } = await db.query(

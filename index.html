@@ -56,6 +56,10 @@
           <span class="brand-copy"><strong>Guildkeep</strong><span>Messages</span></span>
         </div>
         <div class="topbar-profile">
+          <button class="text-button message-search-global" type="button" data-open-message-search="global">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>
+            <span>Search messages</span>
+          </button>
           <span id="profile-label">Signed in</span>
           <button id="sign-out" class="text-button sign-out" type="button">Sign out</button>
         </div>
@@ -100,6 +104,38 @@
         </section>
       </main>
       </div>
+    </div>
+
+    <div id="message-search-overlay" class="message-search-overlay" hidden>
+      <section class="message-search-panel" role="dialog" aria-modal="true" aria-labelledby="message-search-title" tabindex="-1">
+        <header class="message-search-header">
+          <div>
+            <h2 id="message-search-title">Search messages</h2>
+            <p>Find a message and jump straight to it.</p>
+          </div>
+          <button id="message-search-close" class="dialog-close" type="button" aria-label="Close message search">×</button>
+        </header>
+        <label class="message-search-input">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>
+          <input id="message-search-query" type="search" maxlength="100" autocomplete="off" aria-label="Search message text"
+            placeholder="Search for a word or phrase" aria-describedby="message-search-status" />
+        </label>
+        <div id="message-search-scope" class="message-search-scope" role="group" aria-label="Search scope">
+          <button type="button" data-message-search-scope="chat" aria-pressed="false">This conversation</button>
+          <button type="button" data-message-search-scope="global" aria-pressed="true">All conversations</button>
+        </div>
+        <p id="message-search-status" class="message-search-status" role="status" aria-live="polite">
+          Enter at least 2 characters to search.
+        </p>
+        <div id="message-search-results" class="message-search-results" aria-label="Search results"></div>
+        <footer class="message-search-footer">
+          <button type="button" class="secondary-button" data-message-search-step="-1" aria-label="Previous matching message">← Previous</button>
+          <span id="message-search-position" aria-live="polite">0 results</span>
+          <button type="button" class="secondary-button" data-message-search-step="1" aria-label="Next matching message">Next →</button>
+          <button type="button" class="secondary-button message-search-page" data-message-search-page="-1">Newer results</button>
+          <button type="button" class="secondary-button message-search-page" data-message-search-page="1">Older results</button>
+        </footer>
+      </section>
     </div>
 
     <div id="profile-preview" class="profile-preview-backdrop" hidden>

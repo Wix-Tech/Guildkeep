@@ -89,7 +89,10 @@ Storage policies, not trusted to the browser. The app uses Telegram-style
 category navigation, including a mobile bottom bar, and a dark-only
 black/burnt-orange theme. Searching from the chat list also finds
 people by display-name or username prefix; **Message** opens the direct
-conversation and focuses its composer.
+conversation and focuses its composer. Message search is available from the
+conversation header and top bar, searches either the active conversation or
+accessible conversations, matches word prefixes, and opens the selected message
+with a two-second highlight.
 Opening a chat member's profile shows their about and last-seen details,
 common groups, and shared media, links, and files in a responsive side panel or
 mobile bottom sheet. Shared content is limited server-side to chats both people
@@ -105,12 +108,14 @@ can access.
    `db/supabase/006_profile_preview.sql` and
    `db/supabase/007_chat_reaction_scoping.sql`, and
    `db/supabase/008_message_replies.sql` and
-   `db/supabase/009_read_typing_presence.sql` in order in its SQL Editor. To roll
+   `db/supabase/009_read_typing_presence.sql` and
+   `db/supabase/010_message_search.sql` in order in its SQL Editor. To roll
    back message replies, run `db/supabase/008_message_replies.down.sql`; to
    roll back reaction scoping, run
    `db/supabase/007_chat_reaction_scoping.down.sql`; to roll back read receipts
    and private chat-live policies, run
-   `db/supabase/009_read_typing_presence.down.sql`. The
+   `db/supabase/009_read_typing_presence.down.sql`; to roll back message search,
+   run `db/supabase/010_message_search.down.sql`. The
    migrations create the chat tables, secure profile search and direct-chat
    RPCs, profile trigger, row-level security policies, group roles/admin
    commands, message reactions, invite flows, channels, contact-only statuses,
@@ -122,7 +127,9 @@ can access.
    constrained to the same chat, retain a deleted-message quote for soft
    deletes, and clear the reference when the original is hard deleted. Reaction
    scoping backfills each reaction's chat ID from its message, enforces that relationship, and
-   enables chat-filtered Realtime updates.
+   enables chat-filtered Realtime updates. Message search stores a generated
+   `tsvector`, indexes it with GIN, enforces membership/public-channel access in
+   its RPC, and limits queries to 100 characters and pages to 50 results.
 2. Copy `.env.example` to `.env.local` and set `VITE_SUPABASE_URL` and
    `VITE_SUPABASE_ANON_KEY` from the Supabase project API settings. These are
    browser-visible client settings; never use a Supabase secret/service-role key.
@@ -138,7 +145,7 @@ can access.
 6. Use **New group** to create a group. Share its invite link from group details;
    admins can type `/help` in a group conversation to see available commands.
 7. Test media, status, and voice-note flows with files under 25 MB. Apply all
-   nine SQL migrations before testing channels, group/channel settings,
+   ten SQL migrations before testing channels, group/channel settings,
    profile photos, statuses, message media, and replies.
 8. In two accounts, open the same direct chat. Scroll the recipient to the
    bottom to send a read receipt; confirm the sender sees a grey sent tick turn

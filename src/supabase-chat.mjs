@@ -110,15 +110,43 @@ export async function listChats() {
   return data ?? [];
 }
 
-export async function listMessages(chatId) {
-  const { data, error } = await client()
+const MESSAGE_PROJECTION = 'id, chat_id, sender_id, body, created_at, media_path, media_type, file_name, voice_note, edited_at, deleted_at, forwarded_from, reply_to_id, sender:profiles!messages_sender_id_fkey(display_name, username, avatar_path), reply_to:messages!messages_reply_to_id_fkey(id, body, deleted_at, sender:profiles!messages_sender_id_fkey(display_name, username))';
+
+export async function listMessages(chatId, { before = null, after = null, pageSize = 500 } = {}) {
+  const descending = !after;
+  let query = client()
     .from('messages')
-    .select('id, chat_id, sender_id, body, created_at, media_path, media_type, file_name, voice_note, edited_at, deleted_at, forwarded_from, reply_to_id, sender:profiles!messages_sender_id_fkey(display_name, username, avatar_path), reply_to:messages!messages_reply_to_id_fkey(id, body, deleted_at, sender:profiles!messages_sender_id_fkey(display_name, username))')
-    .eq('chat_id', chatId)
-    .order('created_at', { ascending: false })
-    .limit(500);
+    .select(MESSAGE_PROJECTION)
+    .eq('chat_id', chatId);
+  if (before) query = query.lt('created_at', before);
+  if (after) query = query.gt('created_at', after);
+  query = query.order('created_at', { ascending: !descending }).limit(pageSize);
+  const { data, error } = await query;
   if (error) throw error;
-  return (data ?? []).reverse();
+  return descending ? (data ?? []).reverse() : (data ?? []);
+}
+
+export async function listMessagesAround(chatId, timestamp, pageSize = 120) {
+  const olderLimit = Math.ceil(pageSize / 2);
+  const newerLimit = Math.floor(pageSize / 2);
+  const [older, newer] = await Promise.all([
+    listMessages(chatId, { before: timestamp, pageSize: olderLimit }),
+    listMessages(chatId, { after: timestamp, pageSize: newerLimit }),
+  ]);
+  const byId = new Map([...older, ...newer].map((message) => [message.id, message]));
+  return [...byId.values()].sort((left, right) =>
+    new Date(left.created_at) - new Date(right.created_at));
+}
+
+export async function searchMessages(searchTerm, chatId = null, pageSize = 25, pageOffset = 0) {
+  const { data, error } = await client().rpc('search_messages', {
+    search_term: searchTerm,
+    target_chat_id: chatId,
+    page_size: pageSize,
+    page_offset: pageOffset,
+  });
+  if (error) throw error;
+  return data ?? [];
 }
 
 export async function getMessage(chatId, messageId) {

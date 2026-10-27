@@ -13,7 +13,7 @@ test('active chat read receipts, typing, and presence stay private and are clean
     readSource('../src/live-styles.css'),
   ]);
 
-  const openChatStart = app.indexOf('async function openChat(chatId)');
+  const openChatStart = app.indexOf('async function openChat(chatId, chatOverride = null)');
   const openChatEnd = app.indexOf('async function refreshChatReadReceipts', openChatStart);
   const openChatSource = app.slice(openChatStart, openChatEnd);
   assert.ok(openChatStart >= 0 && openChatEnd > openChatStart);
