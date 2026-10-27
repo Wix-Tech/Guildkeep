@@ -137,7 +137,25 @@ export async function listMyMentions() {
   return data ?? [];
 }
 
-const MESSAGE_PROJECTION = 'id, chat_id, sender_id, body, created_at, media_path, media_type, file_name, voice_note, edited_at, deleted_at, forwarded_from, reply_to_id, sender:profiles!messages_sender_id_fkey(display_name, username, avatar_path), reply_to:messages!messages_reply_to_id_fkey(id, body, deleted_at, sender:profiles!messages_sender_id_fkey(display_name, username))';
+const MESSAGE_PROJECTION = 'id, chat_id, sender_id, body, created_at, media_path, media_type, file_name, voice_note, edited_at, deleted_at, forwarded_from, reply_to_id, sender:profiles!messages_sender_id_fkey(display_name, username, avatar_path)';
+
+async function attachReplyTargets(messages, chatId) {
+  const replyIds = [...new Set(messages.map((message) => message.reply_to_id).filter(Boolean))];
+  if (!replyIds.length) return messages;
+
+  const { data, error } = await client()
+    .from('messages')
+    .select('id, chat_id, sender_id, body, deleted_at, sender:profiles!messages_sender_id_fkey(display_name, username)')
+    .eq('chat_id', chatId)
+    .in('id', replyIds);
+  if (error) throw error;
+
+  const targets = new Map((data ?? []).map((message) => [message.id, message]));
+  return messages.map((message) => ({
+    ...message,
+    reply_to: targets.get(message.reply_to_id) ?? null,
+  }));
+}
 
 export async function listMessages(chatId, { before = null, after = null, pageSize = 500 } = {}) {
   const descending = !after;
@@ -150,7 +168,8 @@ export async function listMessages(chatId, { before = null, after = null, pageSi
   query = query.order('created_at', { ascending: !descending }).limit(pageSize);
   const { data, error } = await query;
   if (error) throw error;
-  return descending ? (data ?? []).reverse() : (data ?? []);
+  const messages = await attachReplyTargets(data ?? [], chatId);
+  return descending ? messages.reverse() : messages;
 }
 
 export async function listMessagesAround(chatId, timestamp, pageSize = 120) {
@@ -205,12 +224,12 @@ export async function unpinChatMessage(chatId, messageId) {
 export async function getMessage(chatId, messageId) {
   const { data, error } = await client()
     .from('messages')
-    .select('id, chat_id, sender_id, body, created_at, media_path, media_type, file_name, voice_note, edited_at, deleted_at, forwarded_from, reply_to_id, sender:profiles!messages_sender_id_fkey(display_name, username, avatar_path), reply_to:messages!messages_reply_to_id_fkey(id, body, deleted_at, sender:profiles!messages_sender_id_fkey(display_name, username))')
+    .select(MESSAGE_PROJECTION)
     .eq('chat_id', chatId)
     .eq('id', messageId)
     .single();
   if (error) throw error;
-  return data;
+  return (await attachReplyTargets([data], chatId))[0];
 }
 
 export async function sendMessage(chatId, senderId, body, media = null, replyToId = null) {
@@ -226,10 +245,10 @@ export async function sendMessage(chatId, senderId, body, media = null, replyToI
       voice_note: Boolean(media?.voiceNote),
       reply_to_id: replyToId,
     })
-    .select('id, chat_id, sender_id, body, created_at, media_path, media_type, file_name, voice_note, edited_at, deleted_at, forwarded_from, reply_to_id, reply_to:messages!messages_reply_to_id_fkey(id, body, deleted_at, sender:profiles!messages_sender_id_fkey(display_name, username))')
+    .select(MESSAGE_PROJECTION)
     .single();
   if (error) throw error;
-  return data;
+  return (await attachReplyTargets([data], chatId))[0];
 }
 
 export async function createDirectChat(username) {

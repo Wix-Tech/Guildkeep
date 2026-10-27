@@ -20,7 +20,9 @@ test('message replies support quote navigation, mobile swipe, desktop shortcuts,
   assert.match(app, /event\.clientX - origin\.x >= 72/);
   assert.match(app, /event\.key\.toLowerCase\(\) === 'r'/);
   assert.match(app, /scrollIntoView\(\{ behavior: reducedMotion \? 'auto' : 'smooth'/);
-  assert.match(chat, /reply_to:messages!messages_reply_to_id_fkey/);
+  assert.match(chat, /async function attachReplyTargets\(messages, chatId\)/);
+  assert.match(chat, /\.in\('id', replyIds\)/);
+  assert.doesNotMatch(chat, /reply_to:messages!messages_reply_to_id_fkey/);
   assert.match(chat, /reply_to_id: replyToId/);
   assert.match(styles, /\.message-reply-shortcut/);
   assert.match(styles, /@media \(max-width: 760px\)[\s\S]*?\.message-reply-shortcut \{ display: none; \}/);
