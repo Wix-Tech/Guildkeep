@@ -156,6 +156,10 @@ const esc = (value) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character],
   );
 
+const EMOJI_OPTIONS = ['😀', '😂', '🥰', '😍', '😊', '😎', '😭', '😮', '🤔', '🙏', '👏', '👍', '👎', '❤️', '🧡', '💛', '💚', '💙', '💜', '✨', '🔥', '🎉', '💯', '✅', '🤝', '👋', '🌸', '☀️', '🍕', '☕', '🐈', '🎵'];
+const STICKER_OPTIONS = ['🥹', '😂', '🥰', '😎', '🤔', '🙌', '❤️', '🔥', '🎉', '🐈', '🌸', '💯'];
+const STICKER_EMOJIS = new Set(STICKER_OPTIONS);
+
 function setStatus(element, message, isError = false) {
   element.textContent = message;
   element.classList.toggle('is-error', isError);
@@ -698,6 +702,7 @@ function renderMessages() {
       const senderName = message.sender?.display_name ??
         (own ? state.profile.display_name : state.activeChat?.chat_name ?? 'Member');
       const senderUsername = message.sender?.username ?? '';
+      const sticker = STICKER_EMOJIS.has(message.body?.trim());
       const replyTo = Array.isArray(message.reply_to) ? message.reply_to[0] : message.reply_to;
       const reactions = state.reactions.get(message.id) ?? [];
       const readCount = readMessageCount(
@@ -729,7 +734,7 @@ function renderMessages() {
         return `<div class="message ${own ? 'outgoing' : ''} is-deleted" data-message-id="${esc(message.id)}"><em>Message deleted</em></div>`;
       }
       return `
-        <div class="message ${own ? 'outgoing' : ''}" data-message-id="${esc(message.id)}" tabindex="0">
+        <div class="message ${own ? 'outgoing' : ''} ${sticker ? 'is-sticker' : ''}" data-message-id="${esc(message.id)}" tabindex="0">
           <div class="message-quick-reactions" aria-label="Quick reactions">
             ${['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji) => `<button type="button"
               data-quick-reaction="${esc(emoji)}" data-reaction-message="${esc(message.id)}"
@@ -994,6 +999,33 @@ function renderMessageMedia(message) {
     return `<video class="message-media-video" controls preload="metadata" src="${src}"></video>`;
   }
   return `<a class="message-file" href="${src}" target="_blank" rel="noopener noreferrer">↧ ${esc(message.file_name ?? 'Download attachment')}</a>`;
+}
+
+function renderEmojiPicker(kind = 'emoji') {
+  const picker = $('emoji-picker');
+  if (!picker) return;
+  const stickers = kind === 'stickers';
+  const options = stickers ? STICKER_OPTIONS : EMOJI_OPTIONS;
+  picker.innerHTML = `
+    <div class="emoji-picker-tabs" role="tablist" aria-label="Choose emoji or stickers">
+      <button type="button" role="tab" data-emoji-picker-tab="emoji" aria-selected="${!stickers}">Emoji</button>
+      <button type="button" role="tab" data-emoji-picker-tab="stickers" aria-selected="${stickers}">Stickers</button>
+    </div>
+    <div class="emoji-picker-grid" role="group" aria-label="${stickers ? 'Stickers' : 'Emoji'}">
+      ${options.map((emoji) => `<button type="button" class="emoji-picker-item ${stickers ? 'is-sticker-option' : ''}"
+        data-insert-emoji="${esc(emoji)}" aria-label="${stickers ? 'Insert sticker ' : 'Insert emoji '}${esc(emoji)}">${emoji}</button>`).join('')}
+    </div>`;
+  picker.hidden = false;
+}
+
+function insertComposerEmoji(emoji) {
+  const composer = $('message-form [name="body"]');
+  if (!composer) return;
+  const start = composer.selectionStart;
+  const end = composer.selectionEnd;
+  composer.setRangeText(emoji, start, end, 'end');
+  composer.focus();
+  composer.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 function formatLastSeen(timestamp) {
@@ -1346,6 +1378,8 @@ function renderConversation() {
             <span data-reply-copy></span>
             <button type="button" class="reply-cancel" data-cancel-reply aria-label="Cancel reply">×</button>
           </div>
+          <button class="composer-tool" type="button" id="emoji-picker-toggle" aria-label="Open emoji and stickers" aria-expanded="false">☺</button>
+          <div id="emoji-picker" class="emoji-picker" hidden role="dialog" aria-label="Emoji and stickers"></div>
           <button class="composer-tool" type="button" id="attach-media" aria-label="Attach media" title="Attach media">＋</button>
           <button class="composer-tool" type="button" id="voice-note" aria-label="Record voice note" title="Record voice note">🎙</button>
           <div class="recording-controls" id="recording-controls" hidden>
@@ -2547,6 +2581,12 @@ function wire() {
     if (event.target.closest('.lightbox-next')) renderProfileLightbox(state.profileLightboxIndex + 1);
   });
   document.addEventListener('click', (event) => {
+    const emojiPicker = $('emoji-picker');
+    if (emojiPicker && !emojiPicker.hidden
+      && !event.target.closest('#emoji-picker, #emoji-picker-toggle')) {
+      emojiPicker.hidden = true;
+      $('emoji-picker-toggle')?.setAttribute('aria-expanded', 'false');
+    }
     const searchTrigger = event.target.closest('[data-open-message-search]');
     if (searchTrigger) {
       openMessageSearch(searchTrigger.dataset.openMessageSearch);
@@ -2567,6 +2607,13 @@ function wire() {
   });
   document.addEventListener('keydown', (event) => {
     const searchOpen = !$('message-search-overlay').hidden;
+    if (event.key === 'Escape' && !$('emoji-picker').hidden) {
+      event.preventDefault();
+      $('emoji-picker').hidden = true;
+      $('emoji-picker-toggle').setAttribute('aria-expanded', 'false');
+      $('emoji-picker-toggle').focus();
+      return;
+    }
     if (event.key === 'Escape' && searchOpen) {
       event.preventDefault();
       closeMessageSearch();
@@ -3198,6 +3245,33 @@ function wire() {
   });
 
   $('conversation').addEventListener('click', async (event) => {
+    if (event.target.closest('#emoji-picker-toggle')) {
+      const picker = $('emoji-picker');
+      const button = $('emoji-picker-toggle');
+      if (picker.hidden) {
+        renderEmojiPicker();
+        button.setAttribute('aria-expanded', 'true');
+        picker.querySelector('[data-insert-emoji]')?.focus();
+      } else {
+        picker.hidden = true;
+        button.setAttribute('aria-expanded', 'false');
+        button.focus();
+      }
+      return;
+    }
+    const pickerTab = event.target.closest('[data-emoji-picker-tab]');
+    if (pickerTab) {
+      renderEmojiPicker(pickerTab.dataset.emojiPickerTab);
+      $('emoji-picker').querySelector('[data-insert-emoji]')?.focus();
+      return;
+    }
+    const emojiChoice = event.target.closest('[data-insert-emoji]');
+    if (emojiChoice) {
+      insertComposerEmoji(emojiChoice.dataset.insertEmoji);
+      $('emoji-picker').hidden = true;
+      $('emoji-picker-toggle').setAttribute('aria-expanded', 'false');
+      return;
+    }
     const readCount = event.target.closest('[data-read-count]');
     if (readCount) {
       const count = Number(readCount.dataset.readCount);
