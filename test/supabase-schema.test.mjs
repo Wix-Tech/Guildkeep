@@ -78,6 +78,14 @@ test(
         new URL('../db/supabase/006_profile_preview.down.sql', import.meta.url),
         'utf8',
       );
+      const reactionScopingMigration = await readFile(
+        new URL('../db/supabase/007_chat_reaction_scoping.sql', import.meta.url),
+        'utf8',
+      );
+      const reactionScopingDownMigration = await readFile(
+        new URL('../db/supabase/007_chat_reaction_scoping.down.sql', import.meta.url),
+        'utf8',
+      );
       const publicationSetup = migration.lastIndexOf('\ndo $$') + 1;
       assert.ok(publicationSetup > 1, 'migration should configure Realtime publication');
       await db.exec(migration.slice(0, publicationSetup));
@@ -98,6 +106,13 @@ test(
       await db.exec(settingsMigration);
       await db.exec(profilePreviewMigration);
       await db.exec(profilePreviewMigration);
+      const reactionPublicationSetup = reactionScopingMigration.lastIndexOf('\ndo $$') + 1;
+      assert.ok(reactionPublicationSetup > 1, 'reaction migration should configure Realtime publication');
+      assert.match(reactionScopingMigration, /alter publication supabase_realtime add table public\.chat_reactions/i);
+      assert.match(reactionScopingMigration, /replica identity full/i);
+      assert.match(reactionScopingMigration, /chat_reactions_by_chat_message/);
+      await db.exec(reactionScopingMigration.slice(0, reactionPublicationSetup));
+      await db.exec(reactionScopingMigration.slice(0, reactionPublicationSetup));
 
       const userA = '00000000-0000-4000-8000-000000000001';
       const userB = '00000000-0000-4000-8000-000000000002';
@@ -461,6 +476,40 @@ test(
         [groupId],
       );
       assert.deepEqual(groupReactions, [{ message_id: groupMessageId, reaction: '❤️' }]);
+      const { rows: scopedReactions } = await db.query(
+        `select chat_id from public.chat_reactions where message_id = $1`,
+        [groupMessageId],
+      );
+      assert.deepEqual(scopedReactions, [{ chat_id: groupId }], 'chat_id should be populated from the message');
+      const { rows: scopedChatQuery } = await db.query(
+        `select message_id from public.chat_reactions where chat_id = $1`,
+        [groupId],
+      );
+      assert.deepEqual(scopedChatQuery, [{ message_id: groupMessageId }]);
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
+      const { rows: cannotDeleteOtherMemberReaction } = await db.query(
+        `delete from public.chat_reactions where message_id = $1 returning user_id`,
+        [groupMessageId],
+      );
+      assert.deepEqual(cannotDeleteOtherMemberReaction, [], 'members cannot remove another user’s reaction');
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
+      await assert.rejects(
+        db.query(
+          `insert into public.chat_reactions (message_id, chat_id, user_id, reaction)
+           values ($1, $2, $3, '👍')`,
+          [groupMessageId, chatId, userB],
+        ),
+        /does not match message chat/i,
+      );
+      await db.exec('reset role');
+      await assert.rejects(
+        db.query(`update public.chat_reactions set chat_id = $1 where message_id = $2`, [
+          chatId,
+          groupMessageId,
+        ]),
+        /does not match message chat/i,
+      );
+      await db.exec('set role authenticated');
       const { rows: activeStatuses } = await db.query(
         `select body from public.get_group_statuses($1)`,
         [groupId],
@@ -623,6 +672,11 @@ test(
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
 
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [outsider]);
+      const { rows: reactionsHiddenFromOutsider } = await db.query(
+        `select message_id from public.chat_reactions where chat_id = $1`,
+        [groupId],
+      );
+      assert.deepEqual(reactionsHiddenFromOutsider, [], 'non-members must not see chat-scoped reactions');
       const { rows: hiddenStatuses } = await db.query(
         `select body from public.list_contact_statuses() where author_id = $1`,
         [userA],
@@ -658,6 +712,13 @@ test(
         /row-level security|not a member/i,
       );
       await db.exec('reset role');
+      await db.exec(reactionScopingDownMigration);
+      await db.exec(reactionScopingDownMigration);
+      const { rows: removedReactionChatScope } = await db.query(
+        `select column_name from information_schema.columns
+         where table_schema = 'public' and table_name = 'chat_reactions' and column_name = 'chat_id'`,
+      );
+      assert.deepEqual(removedReactionChatScope, []);
       await db.exec(profilePreviewDownMigration);
       const { rows: removedProfilePreview } = await db.query(
         `select to_regclass('public.profile_preview_settings') as settings`,

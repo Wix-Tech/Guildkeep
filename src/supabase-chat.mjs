@@ -451,12 +451,17 @@ export function subscribeToMemberships(userId, onMembership) {
   return () => client().removeChannel(channel);
 }
 
-export function subscribeToReactions(onReaction) {
+export function subscribeToReactions(chatId, onReaction) {
   const channel = client()
-    .channel('chat-reactions')
+    .channel(`chat-reactions:${chatId}`)
     .on(
       'postgres_changes',
-      { event: '*', schema: 'public', table: 'chat_reactions' },
+      {
+        event: '*',
+        schema: 'public',
+        table: 'chat_reactions',
+        filter: `chat_id=eq.${chatId}`,
+      },
       onReaction,
     )
     .subscribe();

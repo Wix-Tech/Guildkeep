@@ -77,6 +77,8 @@ const state = {
   groupMemberResults: [],
   selectedGroupMembers: new Map(),
   reactions: new Map(),
+  reactionDetailsSequence: 0,
+  lastTouchTap: null,
   pendingInviteHandled: false,
   currentView: 'chats',
   channels: [],
@@ -537,14 +539,23 @@ function renderMessages() {
           const matching = reactions.filter((item) => item.reaction === emoji);
           if (!matching.length) return '';
           const mine = matching.some((item) => item.user_id === state.session.user.id);
-          return `<span class="reaction-chip ${mine ? 'is-selected' : ''}"
-            aria-label="${matching.length} ${emoji} reactions">${emoji}<small>${matching.length}</small></span>`;
+          return `<span class="reaction-chip ${mine ? 'is-selected' : ''}">
+            <button type="button" class="reaction-toggle" data-toggle-reaction="${esc(emoji)}"
+              data-reaction-message="${esc(message.id)}" aria-label="Toggle your ${esc(emoji)} reaction">${emoji}</button>
+            <button type="button" class="reaction-count" data-reaction-details="${esc(emoji)}"
+              data-reaction-message="${esc(message.id)}" aria-label="See ${matching.length} people who reacted ${esc(emoji)}">${matching.length}</button>
+          </span>`;
         }).join('');
       if (message.deleted_at) {
         return `<div class="message ${own ? 'outgoing' : ''} is-deleted" data-message-id="${esc(message.id)}"><em>Message deleted</em></div>`;
       }
       return `
         <div class="message ${own ? 'outgoing' : ''}" data-message-id="${esc(message.id)}">
+          <div class="message-quick-reactions" aria-label="Quick reactions">
+            ${['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji) => `<button type="button"
+              data-quick-reaction="${esc(emoji)}" data-reaction-message="${esc(message.id)}"
+              aria-label="React ${esc(emoji)}">${emoji}</button>`).join('')}
+          </div>
           ${!own ? `<div class="message-author">
             <button class="profile-preview-trigger message-author-avatar" type="button"
               data-profile-preview-id="${esc(message.sender_id)}"
@@ -1065,7 +1076,7 @@ async function openChat(chatId) {
       }).catch((error) => showToast(friendlyError(error)));
     });
     state.unsubscribeReactions?.();
-    state.unsubscribeReactions = subscribeToReactions(() => {
+    state.unsubscribeReactions = subscribeToReactions(chatId, () => {
       if (state.activeChatId === chatId) void refreshReactions(chatId);
     });
     const messages = await hydrateMessages(await listMessages(chatId));
@@ -1423,6 +1434,92 @@ function showMessageMenu(messageId, clientX, clientY) {
   menu.style.top = `${Math.max(12, Math.min(clientY, window.innerHeight - menu.offsetHeight - 12))}px`;
 }
 
+function positionReactionDetails(trigger) {
+  const panel = $('reaction-details');
+  const rect = trigger.getBoundingClientRect();
+  const width = Math.min(300, window.innerWidth - 24);
+  const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
+  const below = rect.bottom + panel.offsetHeight + 8 <= window.innerHeight;
+  panel.style.left = `${left}px`;
+  panel.style.top = `${below ? rect.bottom + 8 : Math.max(12, rect.top - panel.offsetHeight - 8)}px`;
+}
+
+async function openReactionDetails(messageId, emoji, trigger) {
+  const panel = $('reaction-details');
+  const sequence = ++state.reactionDetailsSequence;
+  const chatId = state.activeChatId;
+  const rows = (state.reactions.get(messageId) ?? []).filter((row) => row.reaction === emoji);
+  panel.innerHTML = `<button type="button" class="reaction-details-close" aria-label="Close reactions">×</button>
+    <h3>${esc(emoji)} · ${rows.length} ${rows.length === 1 ? 'reaction' : 'reactions'}</h3>
+    <p class="reaction-details-loading" role="status">Loading people…</p>`;
+  panel.hidden = false;
+  positionReactionDetails(trigger);
+  if (!rows.length) return;
+
+  try {
+    const profiles = await Promise.all([...new Set(rows.map((row) => row.user_id))].map(async (userId) => {
+      if (userId === state.session.user.id) return state.profile;
+      const preview = await getProfilePreview(userId);
+      return preview.profile;
+    }));
+    if (sequence !== state.reactionDetailsSequence || state.activeChatId !== chatId || panel.hidden) return;
+    const byId = new Map(profiles.map((profile) => [profile.id, profile]));
+    const context = state.activeChat?.chat_type === 'group'
+      ? `data-profile-preview-context="${esc(chatId)}"` : '';
+    panel.innerHTML = `<button type="button" class="reaction-details-close" aria-label="Close reactions">×</button>
+      <h3>${esc(emoji)} · ${rows.length} ${rows.length === 1 ? 'reaction' : 'reactions'}</h3>
+      <ul>${[...new Set(rows.map((row) => row.user_id))].map((userId) => {
+        const profile = byId.get(userId);
+        if (!profile) return '';
+        const name = profile.display_name ?? profile.username ?? 'Member';
+        return `<li>${userId === state.session.user.id
+          ? `${avatar(name, userId, profile.avatar_path)}<span>${esc(name)} <small>You</small></span>`
+          : `<button type="button" class="reaction-person profile-preview-trigger"
+            data-profile-preview-id="${esc(userId)}" ${context}>
+            ${avatar(name, userId, profile.avatar_path)}<span>${esc(name)}</span></button>`}</li>`;
+      }).join('')}</ul>`;
+    positionReactionDetails(trigger);
+  } catch (error) {
+    if (sequence !== state.reactionDetailsSequence || panel.hidden) return;
+    panel.innerHTML = `<button type="button" class="reaction-details-close" aria-label="Close reactions">×</button>
+      <h3>${esc(emoji)} reactions</h3>
+      <p class="reaction-details-error" role="alert">Could not load people: ${esc(friendlyError(error))}</p>`;
+    positionReactionDetails(trigger);
+  }
+}
+
+function closeReactionDetails() {
+  state.reactionDetailsSequence += 1;
+  $('reaction-details').hidden = true;
+}
+
+async function applyMessageReaction(messageId, emoji, button) {
+  if (!state.activeChatId || !state.messages.some((message) => message.id === messageId)) return;
+  if (button) button.disabled = true;
+  try {
+    await toggleMessageReaction(messageId, emoji);
+    await refreshReactions(state.activeChatId);
+  } catch (error) {
+    showToast(friendlyError(error));
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function sendHeartReaction(messageId) {
+  const alreadyReacted = (state.reactions.get(messageId) ?? []).some(
+    (row) => row.user_id === state.session.user.id && row.reaction === '❤️',
+  );
+  const message = document.querySelector(`.message[data-message-id="${CSS.escape(messageId)}"]`);
+  if (message) {
+    message.classList.remove('heart-pop');
+    void message.offsetWidth;
+    message.classList.add('heart-pop');
+    setTimeout(() => message.classList.remove('heart-pop'), 650);
+  }
+  if (!alreadyReacted) await applyMessageReaction(messageId, '❤️');
+}
+
 function openForwardDialog(messageId) {
   state.selectedMessageId = messageId;
   const destinations = [...state.chats, ...state.channels]
@@ -1661,6 +1758,10 @@ function wire() {
     if (event.target.closest('.lightbox-next')) renderProfileLightbox(state.profileLightboxIndex + 1);
   });
   document.addEventListener('click', (event) => {
+    const reactionPanel = $('reaction-details');
+    if (!reactionPanel.hidden && !event.target.closest('#reaction-details, [data-reaction-details]')) {
+      closeReactionDetails();
+    }
     const trigger = event.target.closest('.profile-preview-trigger[data-profile-preview-id]');
     if (!trigger) return;
     event.preventDefault();
@@ -1671,6 +1772,10 @@ function wire() {
     );
   });
   document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !$('reaction-details').hidden) {
+      closeReactionDetails();
+      return;
+    }
     const previewOpen = !$('profile-preview').hidden;
     if (event.key === 'Escape' && previewOpen) {
       event.preventDefault();
@@ -2024,6 +2129,24 @@ function wire() {
   });
 
   $('conversation').addEventListener('click', async (event) => {
+    const details = event.target.closest('[data-reaction-details]');
+    if (details) {
+      await openReactionDetails(
+        details.dataset.reactionMessage,
+        details.dataset.reactionDetails,
+        details,
+      );
+      return;
+    }
+    const reaction = event.target.closest('[data-toggle-reaction], [data-quick-reaction]');
+    if (reaction) {
+      await applyMessageReaction(
+        reaction.dataset.reactionMessage,
+        reaction.dataset.toggleReaction ?? reaction.dataset.quickReaction,
+        reaction,
+      );
+      return;
+    }
     if (event.target.closest('#conversation-back')) {
       $('conversation').classList.remove('is-open');
       return;
@@ -2234,6 +2357,32 @@ function wire() {
       showMessageMenu(message.dataset.messageId, clientX, clientY);
     }, 520);
   });
+  $('conversation').addEventListener('pointerup', (event) => {
+    if (event.pointerType !== 'touch') return;
+    const message = event.target.closest('.message[data-message-id]');
+    const previousTap = state.lastTouchTap;
+    const now = Date.now();
+    if (
+      message
+      && previousTap?.messageId === message.dataset.messageId
+      && now - previousTap.at <= 350
+      && Math.hypot(event.clientX - previousTap.x, event.clientY - previousTap.y) <= 28
+      && $('message-context').hidden
+    ) {
+      state.lastTouchTap = null;
+      clearTimeout(state.messagePressTimer);
+      void sendHeartReaction(message.dataset.messageId);
+      return;
+    }
+    state.lastTouchTap = message
+      ? { messageId: message.dataset.messageId, at: now, x: event.clientX, y: event.clientY }
+      : null;
+  });
+  $('conversation').addEventListener('dblclick', (event) => {
+    const message = event.target.closest('.message[data-message-id]');
+    if (!message || event.target.closest('button, a, audio, video')) return;
+    void sendHeartReaction(message.dataset.messageId);
+  });
   document.addEventListener('pointermove', (event) => {
     if (!messagePressOrigin || event.pointerId !== messagePressOrigin.pointerId) return;
     if (Math.hypot(event.clientX - messagePressOrigin.x, event.clientY - messagePressOrigin.y) > 12) {
@@ -2295,6 +2444,9 @@ function wire() {
         showToast(friendlyError(error));
       }
     }
+  });
+  $('reaction-details').addEventListener('click', (event) => {
+    if (event.target.closest('.reaction-details-close')) closeReactionDetails();
   });
 
   $('edit-message-form').addEventListener('submit', async (event) => {

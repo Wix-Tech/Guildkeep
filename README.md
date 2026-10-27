@@ -98,12 +98,17 @@ can access.
    `db/supabase/003_groups_profile_reactions.sql`, and
    `db/supabase/004_channels_media_status.sql`, then
    `db/supabase/005_chat_and_status_settings.sql` and
-   `db/supabase/006_profile_preview.sql` in order in its SQL Editor. The
+   `db/supabase/006_profile_preview.sql` and
+   `db/supabase/007_chat_reaction_scoping.sql` in order in its SQL Editor. To
+   roll back the reaction scoping change, run
+   `db/supabase/007_chat_reaction_scoping.down.sql`. The
    migrations create the chat tables, secure profile search and direct-chat
    RPCs, profile trigger, row-level security policies, group roles/admin
    commands, message reactions, invite flows, channels, contact-only statuses,
    chat-avatar storage, admin settings RPCs, status privacy controls, profile
-   preview data/actions, and Realtime subscriptions.
+   preview data/actions, and Realtime subscriptions. Reaction scoping backfills
+   each reaction's chat ID from its message, enforces that relationship, and
+   enables chat-filtered Realtime updates.
 2. Copy `.env.example` to `.env.local` and set `VITE_SUPABASE_URL` and
    `VITE_SUPABASE_ANON_KEY` from the Supabase project API settings. These are
    browser-visible client settings; never use a Supabase secret/service-role key.
