@@ -49,7 +49,7 @@ product/
 ├─ Dockerfile              production image (node:22-alpine, no dev deps)
 ├─ docker-compose.yml      real Postgres + both servers, one command
 ├─ .env.example            DATABASE_URL, ports, pool size
-└─ test/                   95 tests (node:test): search, bot, bundles, SQLite, Postgres, RLS
+└─ test/                   96 tests (node:test): search, bot, bundles, SQLite, Postgres, RLS
 ```
 
 ## Run
@@ -61,7 +61,7 @@ New here? [`../QUICKSTART.md`](../QUICKSTART.md) is the two-minute version —
 npm --prefix product start              # migrate + seed if needed, run both servers
 npm --prefix product install            # install Supabase, Vite, PGlite, and optional pg
 npm --prefix product run db:reset       # migrate + seed the SQLite dev DB
-npm --prefix product test               # 95 tests
+npm --prefix product test               # 96 tests
 npm --prefix product run build          # build both demos and hosted chat app
 npm --prefix product run serve:search   # http://0.0.0.0:8787
 npm --prefix product run serve:admin    # http://0.0.0.0:8788
@@ -96,6 +96,9 @@ with a two-second highlight.
 Messages can be pinned in direct chats; only group or channel owners and
 admins can pin or remove pins there. Pinned messages are shared with chat
 members, update live, and can be opened from the conversation banner.
+Chat-list actions can mark a conversation unread for the current member without
+changing another participant's read receipt. Unread totals count received
+messages, not messages sent by the current user.
 Opening a chat member's profile shows their about and last-seen details,
 common groups, and shared media, links, and files in a responsive side panel or
 mobile bottom sheet. Shared content is limited server-side to chats both people
@@ -113,7 +116,8 @@ can access.
    `db/supabase/008_message_replies.sql` and
    `db/supabase/009_read_typing_presence.sql` and
    `db/supabase/010_message_search.sql`, and
-   `db/supabase/011_pinned_messages.sql` in order in its SQL Editor. To roll
+   `db/supabase/011_pinned_messages.sql`, and
+   `db/supabase/012_mark_chat_unread.sql` in order in its SQL Editor. To roll
    back message replies, run `db/supabase/008_message_replies.down.sql`; to
    roll back reaction scoping, run
    `db/supabase/007_chat_reaction_scoping.down.sql`; to roll back read receipts
@@ -121,6 +125,8 @@ can access.
    `db/supabase/009_read_typing_presence.down.sql`; to roll back message search,
    run `db/supabase/010_message_search.down.sql`; to roll back pinned messages,
    run `db/supabase/011_pinned_messages.down.sql`. The
+   mark-unread function can be removed with
+   `db/supabase/012_mark_chat_unread.down.sql`. The
    migrations create the chat tables, secure profile search and direct-chat
    RPCs, profile trigger, row-level security policies, group roles/admin
    commands, message reactions, invite flows, channels, contact-only statuses,

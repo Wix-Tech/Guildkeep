@@ -133,6 +133,14 @@ test(
         new URL('../db/supabase/011_pinned_messages.down.sql', import.meta.url),
         'utf8',
       );
+      const markChatUnreadMigration = await readFile(
+        new URL('../db/supabase/012_mark_chat_unread.sql', import.meta.url),
+        'utf8',
+      );
+      const markChatUnreadDownMigration = await readFile(
+        new URL('../db/supabase/012_mark_chat_unread.down.sql', import.meta.url),
+        'utf8',
+      );
       const publicationSetup = migration.lastIndexOf('\ndo $$') + 1;
       assert.ok(publicationSetup > 1, 'migration should configure Realtime publication');
       await db.exec(migration.slice(0, publicationSetup));
@@ -175,6 +183,9 @@ test(
       assert.match(pinnedMessagesDownMigration, /drop table if exists public\.chat_pins/i);
       await db.exec(pinnedMessagesMigration.slice(0, pinsPublicationSetup));
       await db.exec(pinnedMessagesMigration.slice(0, pinsPublicationSetup));
+      await db.exec(markChatUnreadMigration);
+      await db.exec(markChatUnreadMigration);
+      assert.match(markChatUnreadDownMigration, /drop function if exists public\.mark_chat_unread/i);
 
       const userA = '00000000-0000-4000-8000-000000000001';
       const userB = '00000000-0000-4000-8000-000000000002';
@@ -243,6 +254,12 @@ test(
         [chatId],
       );
       assert.deepEqual(visiblePins, [{ message_id: inserted[0].id }], 'pins are shared with other chat members');
+      await db.query(`select public.mark_chat_unread($1)`, [chatId]);
+      const { rows: unreadChatRows } = await db.query(
+        `select unread_count from public.list_my_chats() where chat_id = $1`,
+        [chatId],
+      );
+      assert.equal(unreadChatRows[0].unread_count, 1, 'mark unread moves only this member’s unread cursor');
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [outsider]);
       const { rows: privatePins } = await db.query(
         `select message_id from public.chat_pins where chat_id = $1`,
@@ -286,6 +303,10 @@ test(
           [otherChatId, inserted[0].id, userA],
         ),
         /same chat/i,
+      );
+      await assert.rejects(
+        db.query(`select public.mark_chat_unread($1)`, [otherChatId]),
+        /no received messages to mark unread/i,
       );
       const { rows: currentChatOnly } = await db.query(
         `select message_id from public.search_messages('hell', $1)`,

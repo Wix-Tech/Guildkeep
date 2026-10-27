@@ -37,6 +37,7 @@ import {
   markChatRead,
   listChatReadReceipts,
   listChatPins,
+  markChatUnread,
   onAuthChange,
   runGroupCommand,
   sendMessage,
@@ -433,6 +434,8 @@ function renderChats() {
             aria-pressed="${Boolean(chat.pinned)}" title="${chat.pinned ? 'Unpin chat' : 'Pin chat'}">
             ${chat.pinned ? '★' : '☆'}
           </button>` : ''}
+          <button class="chat-mark-unread" type="button" data-mark-unread-id="${esc(chat.chat_id)}"
+            aria-label="Mark ${esc(chat.chat_name)} as unread" title="Mark as unread">●</button>
         </div>`;
     })
     .join('');
@@ -2654,6 +2657,20 @@ function wire() {
         showToast(friendlyError(error));
       } finally {
         pin.disabled = false;
+      }
+      return;
+    }
+    const markUnread = event.target.closest('[data-mark-unread-id]');
+    if (markUnread) {
+      markUnread.disabled = true;
+      try {
+        await markChatUnread(markUnread.dataset.markUnreadId);
+        await refreshChats();
+        showToast('Chat marked as unread.');
+      } catch (error) {
+        showToast(`Could not mark chat as unread: ${friendlyError(error)}`);
+      } finally {
+        markUnread.disabled = false;
       }
       return;
     }

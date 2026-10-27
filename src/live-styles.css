@@ -109,6 +109,19 @@
   cursor: pointer;
 }
 .chat-pin:hover, .chat-pin.is-pinned { color: #f3a171; background: #211914; }
+.chat-mark-unread {
+  width: 30px;
+  height: 34px;
+  flex: 0 0 auto;
+  margin-right: 7px;
+  color: #9a8576;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.chat-mark-unread:hover { color: #ff9a54; background: #211914; }
 .unread-badge {
   min-width: 19px;
   height: 19px;

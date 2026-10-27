@@ -457,6 +457,14 @@ export async function listChatReactions(chatId) {
   return data ?? [];
 }
 
+export async function markChatUnread(chatId) {
+  const { data, error } = await client().rpc('mark_chat_unread', {
+    target_chat_id: chatId,
+  });
+  if (error) throw error;
+  return data;
+}
+
 export async function listChatReadReceipts(chatId) {
   const { data, error } = await client()
     .from('message_reads')
