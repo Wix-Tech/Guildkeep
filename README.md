@@ -61,7 +61,7 @@ New here? [`../QUICKSTART.md`](../QUICKSTART.md) is the two-minute version —
 npm --prefix product start              # migrate + seed if needed, run both servers
 npm --prefix product install            # install Supabase, Vite, PGlite, and optional pg
 npm --prefix product run db:reset       # migrate + seed the SQLite dev DB
-npm --prefix product test               # 100 tests
+npm --prefix product test               # run the test suite
 npm --prefix product run build          # build both demos and hosted chat app
 npm --prefix product run serve:search   # http://0.0.0.0:8787
 npm --prefix product run serve:admin    # http://0.0.0.0:8788
@@ -98,15 +98,18 @@ people by display-name or username prefix; **Message** opens the direct
 conversation and focuses its composer. Message search is available from the
 conversation header and top bar, searches either the active conversation or
 accessible conversations, matches word prefixes, and opens the selected message
-with a two-second highlight.
+with a two-second highlight. Typing `@` in a direct or group chat suggests its
+members; selecting a name inserts their username mention. The notification bell
+lists unread mentions and jumps to the selected message.
 Messages can be pinned in direct chats; only group or channel owners and
 admins can pin or remove pins there. Pinned messages are shared with chat
 members, update live, and can be opened from the conversation banner.
 Chat-list actions can mark a conversation unread for the current member without
-changing another participant's read receipt. A divider marks the first
-received message after the read cursor. Per-chat mute replaces the numeric row
-badge with an unread dot; the top-bar total and document title count received
-messages, not messages sent by the current user.
+changing another participant's read receipt. The conversation shows a divider
+at the first received message after the read cursor; unread totals count
+received messages, not messages sent by the current user. Per-chat mute hides
+the numeric chat-row badge but retains an unread dot. The top-bar chat badge and
+document title show the aggregate unread message count.
 Opening a chat member's profile shows their about and last-seen details,
 common groups, and shared media, links, and files in a responsive side panel or
 mobile bottom sheet. Shared content is limited server-side to chats both people
@@ -125,9 +128,10 @@ can access.
    `db/supabase/009_read_typing_presence.sql` and
    `db/supabase/010_message_search.sql`, and
    `db/supabase/011_pinned_messages.sql`, and
-   `db/supabase/012_mark_chat_unread.sql`, then apply
-   `db/supabase/014_chat_pin_limit.sql` and `db/supabase/015_unread_behavior.sql`
-   in order. To roll
+   `db/supabase/012_mark_chat_unread.sql`, and
+   `db/supabase/013_mentions_notifications.sql`,
+   `db/supabase/014_chat_pin_limit.sql`, and
+   `db/supabase/015_unread_behavior.sql` in order in its SQL Editor. To roll
    back message replies, run `db/supabase/008_message_replies.down.sql`; to
    roll back reaction scoping, run
    `db/supabase/007_chat_reaction_scoping.down.sql`; to roll back read receipts
@@ -136,13 +140,17 @@ can access.
    run `db/supabase/010_message_search.down.sql`; to roll back pinned messages,
    run `db/supabase/011_pinned_messages.down.sql`. The
    mark-unread function can be removed with
-   `db/supabase/012_mark_chat_unread.down.sql`. Roll back the per-chat mute
-   setting and unread UI with `db/supabase/015_unread_behavior.down.sql`. The
+   `db/supabase/012_mark_chat_unread.down.sql`; mention notifications can be
+   removed with `db/supabase/013_mentions_notifications.down.sql`; the pin
+   limit and unread behavior can be rolled back with the corresponding
+   `014_chat_pin_limit.down.sql` and `015_unread_behavior.down.sql` files. The
    migrations create the chat tables, secure profile search and direct-chat
    RPCs, profile trigger, row-level security policies, group roles/admin
    commands, message reactions, invite flows, channels, contact-only statuses,
    chat-avatar storage, admin settings RPCs, status privacy controls, profile
-   preview data/actions, read receipts, and private chat-live Realtime policies.
+   preview data/actions, read receipts, private chat-live Realtime policies,
+   recipient-only mention notifications for direct and group chats, per-chat
+   mute preferences, and unread indicators.
    Read receipts are visible only to members of the same chat; typing and
    presence use private per-chat channels and are never stored as message rows.
    Message replies are
@@ -167,17 +175,18 @@ can access.
 6. Use **New group** to create a group. Share its invite link from group details;
    admins can type `/help` in a group conversation to see available commands.
 7. Test media, status, and voice-note flows with files under 25 MB. Apply all
-   all Supabase migrations before testing channels, group/channel settings,
+   fifteen SQL migrations before testing channels, group/channel settings,
    profile photos, statuses, message media, and replies.
 8. In two accounts, open the same direct chat. Scroll the recipient to the
    bottom to send a read receipt; confirm the sender sees a grey sent tick turn
    orange with two ticks. Type in the composer to confirm the other member sees
    a temporary typing indicator, then verify online/last-seen details.
-9. Send messages from one account, then open the receiving account's chat list.
-   Confirm the top-bar and document-title totals update, the chat row shows its
-   unread count, and the divider appears before the first unread message. Mute
-   the chat to confirm the number becomes a dot; unmute it and scroll to the
-   bottom to clear the divider and unread count.
+9. Send multiple messages from one account, then open the receiving account's
+   chat list. Confirm the unread total appears in the top bar and document
+   title, the row shows the unread count, and the conversation divider appears
+   before the first unread message. Mute that chat and confirm its number is
+   replaced by a dot; unmute it and scroll to the bottom to clear the divider
+   and unread count.
 
 Email confirmation behavior is controlled by the Supabase Auth project settings.
 The client never contains a service-role key. Direct chat creation and message

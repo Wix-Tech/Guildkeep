@@ -41,6 +41,7 @@ import {
   markChatRead,
   listChatReadReceipts,
   listChatPins,
+  listMyMentions,
   markChatUnread,
   onAuthChange,
   runGroupCommand,
@@ -59,6 +60,7 @@ import {
   subscribeToReactions,
   subscribeToReadReceipts,
   subscribeToChatPins,
+  subscribeToMentions,
   subscribeToChatLive,
   subscribeToChatChanges,
   signIn,
@@ -133,6 +135,11 @@ const state = {
   unsubscribeReadReceipts: null,
   unsubscribePins: null,
   pinnedMessages: [],
+  unsubscribeMentions: null,
+  mentions: [],
+  mentionIds: new Set(),
+  mentionsLoaded: false,
+  mentionDraft: null,
   chatLive: null,
   readReceipts: [],
   lastReadAckMessageId: null,
@@ -323,6 +330,14 @@ function clearWorkspace() {
   state.presenceInterval = null;
   state.presenceLastTouchAt = 0;
   stopChatLive();
+  state.unsubscribeMentions?.();
+  state.unsubscribeMentions = null;
+  state.mentions = [];
+  state.mentionIds = new Set();
+  state.mentionsLoaded = false;
+  state.mentionDraft = null;
+  setMentionNotificationsOpen(false);
+  renderMentionNotifications();
   if (!$('profile-preview').hidden) closeProfilePreview(false);
   state.unsubscribeMemberships?.();
   state.unsubscribeMemberships = null;
@@ -712,6 +727,57 @@ function renderPersonResult(person) {
       </span>
       <span class="people-result-action">Message</span>
     </button>`;
+}
+
+function renderMentionSuggestions(input) {
+  const panel = $('mention-suggestions');
+  if (!panel) return;
+  const cursor = input.selectionStart;
+  const beforeCursor = input.value.slice(0, cursor);
+  const match = /(?:^|\s)@([a-z0-9_]{0,24})$/i.exec(beforeCursor);
+  if (!match || !['direct', 'group'].includes(chatType())) {
+    panel.hidden = true;
+    state.mentionDraft = null;
+    return;
+  }
+  const query = match[1].toLocaleLowerCase();
+  const start = cursor - query.length - 1;
+  const candidates = (state.activeChat?.participants ?? [])
+    .filter((person) => person.username?.toLocaleLowerCase().startsWith(query)
+      || person.display_name?.toLocaleLowerCase().includes(query))
+    .slice(0, 8);
+  if (!candidates.length) {
+    panel.hidden = true;
+    state.mentionDraft = null;
+    return;
+  }
+  state.mentionDraft = { start, end: cursor };
+  panel.innerHTML = candidates.map((person) => `<button type="button" class="mention-suggestion"
+      role="option" data-mention-id="${esc(person.id)}">
+      <strong>${esc(person.display_name)}</strong><small>@${esc(person.username)}</small>
+    </button>`).join('');
+  panel.hidden = false;
+}
+
+function selectMentionSuggestion(userId) {
+  const input = $('message-form [name="body"]');
+  const person = state.activeChat?.participants.find((participant) => participant.id === userId);
+  const draft = state.mentionDraft;
+  if (!input || !person || !draft) return;
+  const insertion = `@${person.username} `;
+  input.setRangeText(insertion, draft.start, draft.end, 'end');
+  state.mentionDraft = null;
+  $('mention-suggestions').hidden = true;
+  input.focus();
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function setMentionNotificationsOpen(open) {
+  const panel = $('mention-notifications');
+  const button = $('mention-notifications-toggle');
+  if (!panel || !button) return;
+  panel.hidden = !open;
+  button.setAttribute('aria-expanded', String(open));
 }
 
 function formatMessageTime(timestamp) {
@@ -1431,6 +1497,7 @@ function renderConversation() {
             <button type="button" class="voice-note-discard" id="voice-note-discard-recording">Discard</button>
           </div>
           <textarea name="body" aria-label="Message" placeholder="${type === 'group' ? 'Message or type /help for group commands…' : type === 'channel' ? 'Write a channel post…' : 'Write a message…'}" maxlength="4000" rows="1"></textarea>
+          <div id="mention-suggestions" class="mention-suggestions" hidden role="listbox" aria-label="People to mention"></div>
           <button type="submit">Send</button>
           <div class="voice-note-preview" id="voice-note-preview-controls" hidden>
             <span id="voice-note-preview-status" class="recording-status" role="status" aria-live="polite"></span>
@@ -1559,6 +1626,43 @@ async function refreshChats() {
       if (readCursorChanged && state.messages.length) renderMessages();
     }
   }
+}
+
+function renderMentionNotifications() {
+  const button = $('mention-notifications-toggle');
+  const badge = $('mention-notification-count');
+  const list = $('mention-notification-list');
+  if (!button || !badge || !list) return;
+  const count = state.mentions.length;
+  badge.hidden = count === 0;
+  badge.textContent = count > 50 ? '50+' : String(count);
+  button.setAttribute('aria-label', count
+    ? `Notifications, ${count} unread mentions`
+    : 'Notifications, no unread mentions');
+  list.innerHTML = count
+    ? state.mentions.map((mention) => `<button type="button" class="mention-notification"
+        data-mention-chat="${esc(mention.chat_id)}" data-mention-message="${esc(mention.message_id)}">
+      <span class="mention-notification-top"><strong>${esc(mention.sender_name)}</strong><span>mentioned you in ${esc(mention.chat_name)}</span></span>
+      <span class="mention-notification-body">${esc(mention.body)}</span>
+      <time datetime="${esc(mention.created_at)}">${esc(new Date(mention.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }))}</time>
+    </button>`).join('')
+    : '<p class="mention-notifications-empty">No unread mentions.</p>';
+}
+
+async function refreshMentions(announce = false) {
+  const userId = state.session?.user?.id;
+  if (!userId) return;
+  const rows = await listMyMentions();
+  if (state.session?.user?.id !== userId) return;
+  const previousIds = state.mentionIds;
+  state.mentions = rows;
+  state.mentionIds = new Set(rows.map((mention) => mention.message_id));
+  if (announce && state.mentionsLoaded) {
+    const newest = rows.find((mention) => !previousIds.has(mention.message_id));
+    if (newest) showToast(`${newest.sender_name} mentioned you in ${newest.chat_name}.`);
+  }
+  state.mentionsLoaded = true;
+  renderMentionNotifications();
 }
 
 async function openChat(chatId, chatOverride = null) {
@@ -1775,6 +1879,11 @@ async function markChatReadIfAtBottom() {
     ];
     renderMessages();
     await refreshChats();
+    try {
+      await refreshMentions();
+    } catch (error) {
+      showToast(`Could not refresh mention notifications: ${friendlyError(error)}`);
+    }
   } catch (error) {
     showToast(`Could not mark this chat as read: ${friendlyError(error)}`);
   } finally {
@@ -1885,6 +1994,27 @@ async function initialiseWorkspace(session) {
     state.profile = profile;
     $('profile-label').textContent = `@${state.profile.username}`;
     await refreshChats();
+    if (state.session?.user?.id !== userId) return;
+    state.unsubscribeMentions?.();
+    state.unsubscribeMentions = subscribeToMentions(
+      userId,
+      () => {
+        void refreshMentions(true).catch((error) => {
+          showToast(`Could not refresh mention notifications: ${friendlyError(error)}`);
+        });
+      },
+      (status) => {
+        if (state.session?.user?.id === userId
+          && ['CHANNEL_ERROR', 'TIMED_OUT'].includes(status)) {
+          showToast('Mention notifications are reconnecting.');
+        }
+      },
+    );
+    try {
+      await refreshMentions();
+    } catch (error) {
+      showToast(`Could not load mention notifications: ${friendlyError(error)}`);
+    }
     if (state.session?.user?.id !== userId) return;
     state.unsubscribeMemberships = subscribeToMemberships(session.user.id, () => {
       void Promise.all([refreshChats(), listMyChannels()]).then(([, channels]) => {
@@ -2420,9 +2550,9 @@ async function forwardSelectedMessage(targetChatId) {
 function wire() {
   let messagePressOrigin = null;
   $('conversation').addEventListener('input', (event) => {
-    if (!event.target.matches('#message-form textarea')
-      || !state.chatLive
-      || !['direct', 'group'].includes(chatType())) return;
+    if (!event.target.matches('#message-form textarea')) return;
+    renderMentionSuggestions(event.target);
+    if (!state.chatLive || !['direct', 'group'].includes(chatType())) return;
     const now = Date.now();
     if (!shouldSendTyping(state.lastTypingSentAt, now)) return;
     state.lastTypingSentAt = now;
@@ -2631,7 +2761,7 @@ function wire() {
     }
     if (event.target.closest('.lightbox-next')) renderProfileLightbox(state.profileLightboxIndex + 1);
   });
-  document.addEventListener('click', (event) => {
+  document.addEventListener('click', async (event) => {
     const emojiPicker = $('emoji-picker');
     if (emojiPicker && !emojiPicker.hidden
       && !event.target.closest('#emoji-picker, #emoji-picker-toggle')) {
@@ -2641,6 +2771,33 @@ function wire() {
     const searchTrigger = event.target.closest('[data-open-message-search]');
     if (searchTrigger) {
       openMessageSearch(searchTrigger.dataset.openMessageSearch);
+      return;
+    }
+    if (event.target.closest('#mention-notifications-close')) {
+      setMentionNotificationsOpen(false);
+      $('mention-notifications-toggle')?.focus();
+      return;
+    }
+    const notificationToggle = event.target.closest('#mention-notifications-toggle');
+    if (notificationToggle) {
+      setMentionNotificationsOpen(notificationToggle.getAttribute('aria-expanded') !== 'true');
+      return;
+    }
+    const mentionNotification = event.target.closest('[data-mention-chat][data-mention-message]');
+    if (mentionNotification) {
+      const { mentionChat: chatId, mentionMessage: messageId } = mentionNotification.dataset;
+      const chat = state.chats.find((item) => item.chat_id === chatId);
+      if (!chat) {
+        showToast('This chat is no longer available.');
+        return;
+      }
+      setMentionNotificationsOpen(false);
+      try {
+        await openChat(chatId, chat);
+        await scrollToMessage(messageId);
+      } catch (error) {
+        showToast(`Could not open the mentioned message: ${friendlyError(error)}`);
+      }
       return;
     }
     const reactionPanel = $('reaction-details');
@@ -3087,6 +3244,11 @@ function wire() {
   });
 
   $('conversation').addEventListener('click', async (event) => {
+    const mentionSuggestion = event.target.closest('[data-mention-id]');
+    if (mentionSuggestion) {
+      selectMentionSuggestion(mentionSuggestion.dataset.mentionId);
+      return;
+    }
     if (event.target.closest('[data-open-pinned-messages]')) {
       renderPinnedMessageDialog();
       $('pinned-messages-dialog').hidden = false;

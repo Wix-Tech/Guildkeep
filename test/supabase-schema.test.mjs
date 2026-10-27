@@ -142,6 +142,14 @@ test(
         new URL('../db/supabase/012_mark_chat_unread.down.sql', import.meta.url),
         'utf8',
       );
+      const mentionsMigration = await readFile(
+        new URL('../db/supabase/013_mentions_notifications.sql', import.meta.url),
+        'utf8',
+      );
+      const mentionsDownMigration = await readFile(
+        new URL('../db/supabase/013_mentions_notifications.down.sql', import.meta.url),
+        'utf8',
+      );
       const publicationSetup = migration.lastIndexOf('\ndo $$') + 1;
       assert.ok(publicationSetup > 1, 'migration should configure Realtime publication');
       await db.exec(migration.slice(0, publicationSetup));
@@ -187,6 +195,12 @@ test(
       await db.exec(markChatUnreadMigration);
       await db.exec(markChatUnreadMigration);
       assert.match(markChatUnreadDownMigration, /drop function if exists public\.mark_chat_unread/i);
+      const mentionsPublicationSetup = mentionsMigration.lastIndexOf('\ndo $$') + 1;
+      assert.ok(mentionsPublicationSetup > 1, 'mentions migration should configure Realtime publication');
+      assert.match(mentionsMigration, /alter publication supabase_realtime add table public\.message_mentions/i);
+      assert.match(mentionsDownMigration, /drop table if exists public\.message_mentions/i);
+      await db.exec(mentionsMigration.slice(0, mentionsPublicationSetup));
+      await db.exec(mentionsMigration.slice(0, mentionsPublicationSetup));
 
       const userA = '00000000-0000-4000-8000-000000000001';
       const userB = '00000000-0000-4000-8000-000000000002';
@@ -238,7 +252,7 @@ test(
       assert.equal(existingChat[0].chat_id, chatId, 'repeated direct-chat creation should reuse the chat');
       const { rows: inserted } = await db.query(
         `insert into public.messages (chat_id, sender_id, body)
-         values ($1, $2, 'Hello from Alex')
+         values ($1, $2, 'Hello @sam_two from Alex')
          returning id`,
         [chatId, userA],
       );
@@ -256,12 +270,30 @@ test(
       );
       assert.deepEqual(visiblePins, [{ message_id: inserted[0].id }], 'pins are shared with other chat members');
       await db.query(`select public.mark_chat_unread($1)`, [chatId]);
+      const { rows: unreadMentions } = await db.query(
+        `select message_id, chat_id, sender_username, body
+         from public.list_my_mentions()`,
+      );
+      assert.deepEqual(unreadMentions, [{
+        message_id: inserted[0].id,
+        chat_id: chatId,
+        sender_username: 'alex_one',
+        body: 'Hello @sam_two from Alex',
+      }], 'a chat member receives an unread mention notification');
       const { rows: unreadChatRows } = await db.query(
         `select unread_count from public.list_my_chats() where chat_id = $1`,
         [chatId],
       );
       assert.equal(unreadChatRows[0].unread_count, 1, 'mark unread moves only this member’s unread cursor');
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [outsider]);
+      const { rows: outsiderMentions } = await db.query(
+        `select message_id from public.list_my_mentions()`,
+      );
+      assert.deepEqual(outsiderMentions, [], 'non-members do not receive mention notifications');
+      const { rows: hiddenMentionRows } = await db.query(
+        `select message_id from public.message_mentions`,
+      );
+      assert.deepEqual(hiddenMentionRows, [], 'mention rows are visible only to their recipients');
       const { rows: privatePins } = await db.query(
         `select message_id from public.chat_pins where chat_id = $1`,
         [chatId],
@@ -275,6 +307,35 @@ test(
         ),
         /row-level security/i,
       );
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
+      const { rows: editableMention } = await db.query(
+        `insert into public.messages (chat_id, sender_id, body)
+         values ($1, $2, 'Initial @sam_two mention')
+         returning id`,
+        [chatId, userA],
+      );
+      await db.query(
+        `select public.edit_message($1, 'Edited without a mention')`,
+        [editableMention[0].id],
+      );
+      await db.query(
+        `select public.edit_message($1, 'Edited with @sam_two again')`,
+        [editableMention[0].id],
+      );
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
+      const { rows: editedMentionNotification } = await db.query(
+        `select message_id from public.list_my_mentions() where message_id = $1`,
+        [editableMention[0].id],
+      );
+      assert.deepEqual(editedMentionNotification, [{ message_id: editableMention[0].id }], 'editing a message rebuilds its mention recipients');
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
+      await db.query(`select public.delete_message($1)`, [editableMention[0].id]);
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
+      const { rows: deletedMentionNotification } = await db.query(
+        `select message_id from public.list_my_mentions() where message_id = $1`,
+        [editableMention[0].id],
+      );
+      assert.deepEqual(deletedMentionNotification, [], 'soft-deleting a message removes its mention notification');
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
       const { rows: prefixMatches } = await db.query(
         `select message_id, snippet from public.search_messages('hell', $1)`,
@@ -812,7 +873,7 @@ test(
       );
       assert.deepEqual(
         visibleToMember.map((row) => row.body).sort(),
-        ['', 'Edited message', 'Hello from Alex', 'Reply to Alex'],
+        ['', '', 'Edited message', 'Hello @sam_two from Alex', 'Reply to Alex'],
       );
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [outsider]);
       await assert.rejects(

@@ -131,6 +131,12 @@ export async function setChatMuted(chatId, userId, muted) {
   return data.muted;
 }
 
+export async function listMyMentions() {
+  const { data, error } = await client().rpc('list_my_mentions');
+  if (error) throw error;
+  return data ?? [];
+}
+
 const MESSAGE_PROJECTION = 'id, chat_id, sender_id, body, created_at, media_path, media_type, file_name, voice_note, edited_at, deleted_at, forwarded_from, reply_to_id, sender:profiles!messages_sender_id_fkey(display_name, username, avatar_path), reply_to:messages!messages_reply_to_id_fkey(id, body, deleted_at, sender:profiles!messages_sender_id_fkey(display_name, username))';
 
 export async function listMessages(chatId, { before = null, after = null, pageSize = 500 } = {}) {
@@ -551,6 +557,23 @@ export function subscribeToMemberships(userId, onMembership) {
       onMembership,
     )
     .subscribe();
+  return () => client().removeChannel(channel);
+}
+
+export function subscribeToMentions(userId, onMention, onStatus) {
+  const channel = client()
+    .channel(`mentions:${userId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'message_mentions',
+        filter: `user_id=eq.${userId}`,
+      },
+      onMention,
+    )
+    .subscribe(onStatus);
   return () => client().removeChannel(channel);
 }
 
