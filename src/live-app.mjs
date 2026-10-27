@@ -107,9 +107,11 @@ const state = {
   hoveredMessageId: null,
   messagePressTimer: null,
   voiceRecorder: null,
-  voiceChunks: [],
-  voiceStartedAt: 0,
   voiceTimer: null,
+  voiceStream: null,
+  voiceFile: null,
+  voicePreviewUrl: null,
+  voiceChat: null,
   pendingProfileAvatar: null,
   profilePreview: null,
   profilePreviewSequence: 0,
@@ -189,6 +191,7 @@ function clearTypingTimers() {
 }
 
 function stopChatLive() {
+  discardVoiceNote();
   state.unsubscribeMessages?.();
   state.unsubscribeChat?.();
   state.unsubscribeReactions?.();
@@ -1345,9 +1348,18 @@ function renderConversation() {
           </div>
           <button class="composer-tool" type="button" id="attach-media" aria-label="Attach media" title="Attach media">＋</button>
           <button class="composer-tool" type="button" id="voice-note" aria-label="Record voice note" title="Record voice note">🎙</button>
+          <div class="recording-controls" id="recording-controls" hidden>
+            <span id="recording-status" class="recording-status" role="status" aria-live="polite"></span>
+            <button type="button" class="voice-note-discard" id="voice-note-discard-recording">Discard</button>
+          </div>
           <textarea name="body" aria-label="Message" placeholder="${type === 'group' ? 'Message or type /help for group commands…' : type === 'channel' ? 'Write a channel post…' : 'Write a message…'}" maxlength="4000" rows="1"></textarea>
           <button type="submit">Send</button>
-          <span id="recording-status" class="recording-status" hidden></span>
+          <div class="voice-note-preview" id="voice-note-preview-controls" hidden>
+            <span id="voice-note-preview-status" class="recording-status" role="status" aria-live="polite"></span>
+            <audio id="voice-note-preview" controls preload="metadata" aria-label="Voice note preview"></audio>
+            <button type="button" class="voice-note-discard" id="voice-note-discard">Discard</button>
+            <button type="button" id="voice-note-send">Send voice note</button>
+          </div>
         ` : '<div class="channel-readonly-note">Only channel admins can publish. Subscribe to receive channel updates.</div>'}
       </form>
     </div>`;
@@ -2147,57 +2159,146 @@ function openForwardDialog(messageId) {
 async function toggleRecording() {
   const button = $('voice-note');
   if (state.voiceRecorder?.state === 'recording') {
+    if (button) button.disabled = true;
     state.voiceRecorder.stop();
     return;
   }
+  if (state.voiceRecorder) return;
   const recordingChat = state.activeChat;
   if (!recordingChat) return;
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
     showToast('Voice recording is not supported in this browser.');
     return;
   }
+  if (button) button.disabled = true;
+  let stream;
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (state.activeChatId !== recordingChat.chat_id) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
     const preferredType = ['audio/webm', 'audio/mp4', 'audio/ogg']
       .find((type) => MediaRecorder.isTypeSupported(type));
     const recorder = new MediaRecorder(stream, preferredType ? { mimeType: preferredType } : undefined);
     state.voiceRecorder = recorder;
-    state.voiceChunks = [];
-    state.voiceStartedAt = Date.now();
+    state.voiceStream = stream;
+    const recordedChunks = [];
+    const startedAt = Date.now();
     recorder.addEventListener('dataavailable', (event) => {
-      if (event.data.size) state.voiceChunks.push(event.data);
+      if (event.data.size) recordedChunks.push(event.data);
     });
     recorder.addEventListener('stop', async () => {
-      clearTimeout(state.voiceTimer);
+      if (state.voiceRecorder !== recorder) return;
+      clearInterval(timer);
+      if (state.voiceTimer === timer) state.voiceTimer = null;
       stream.getTracks().forEach((track) => track.stop());
-      const recordingStatus = $('recording-status');
-      if (recordingStatus) recordingStatus.hidden = true;
-      if (button) button.textContent = '🎙';
+      state.voiceStream = null;
+      state.voiceRecorder = null;
+      if (button) {
+        button.textContent = '🎙';
+        button.setAttribute('aria-label', 'Record voice note');
+        button.title = 'Record voice note';
+        button.disabled = false;
+      }
+      const recordingControls = $('recording-controls');
+      if (recordingControls) recordingControls.hidden = true;
       const type = (recorder.mimeType || 'audio/webm').split(';', 1)[0];
-      const blob = new Blob(state.voiceChunks, { type });
-      state.voiceChunks = [];
+      const blob = new Blob(recordedChunks, { type });
       if (!blob.size) return;
       const file = new File([blob], `voice-note.${mediaExtension(type) ?? 'webm'}`, { type });
-      try {
-        await sendChatMedia(file, true, '', recordingChat);
-        showToast('Voice note sent.');
-      } catch (error) {
-        showToast(`Could not send voice note: ${friendlyError(error)}`);
+      state.voiceFile = file;
+      state.voiceChat = recordingChat;
+      state.voicePreviewUrl = URL.createObjectURL(blob);
+      const preview = $('voice-note-preview');
+      const previewControls = $('voice-note-preview-controls');
+      const previewStatus = $('voice-note-preview-status');
+      if (preview) preview.src = state.voicePreviewUrl;
+      if (previewControls && previewStatus) {
+        previewControls.hidden = false;
+        previewStatus.textContent = `Preview voice note · ${formatVoiceDuration(Date.now() - startedAt)}`;
       }
     }, { once: true });
     recorder.start(500);
-    if (button) button.textContent = '■';
-    const recordingStatus = $('recording-status');
-    if (recordingStatus) {
-      recordingStatus.hidden = false;
-      recordingStatus.textContent = 'Recording… tap stop (max 5 min)';
+    if (button) {
+      button.textContent = '■';
+      button.setAttribute('aria-label', 'Stop voice recording');
+      button.title = 'Stop recording';
     }
-    state.voiceTimer = setTimeout(() => {
-      if (recorder.state === 'recording') recorder.stop();
-      showToast('Voice note reached the 5-minute limit.');
-    }, 5 * 60 * 1000);
+    const recordingControls = $('recording-controls');
+    const recordingStatus = $('recording-status');
+    if (recordingControls && recordingStatus) {
+      recordingControls.hidden = false;
+      recordingStatus.textContent = 'Recording · 00:00 · tap ■ to stop (max 5 min)';
+    }
+    const timer = setInterval(() => {
+      if (recorder.state !== 'recording') return;
+      const elapsed = Date.now() - startedAt;
+      if (recordingStatus) {
+        recordingStatus.textContent = `Recording · ${formatVoiceDuration(elapsed)} · tap ■ to stop (max 5 min)`;
+      }
+      if (elapsed >= 5 * 60 * 1000) {
+        recorder.stop();
+        showToast('Voice note reached the 5-minute limit. Preview it before sending.');
+      }
+    }, 1000);
+    state.voiceTimer = timer;
   } catch (error) {
+    stream?.getTracks().forEach((track) => track.stop());
+    state.voiceStream = null;
+    state.voiceRecorder = null;
+    const recordingControls = $('recording-controls');
+    if (recordingControls) recordingControls.hidden = true;
+    if (button) {
+      button.textContent = '🎙';
+      button.setAttribute('aria-label', 'Record voice note');
+      button.title = 'Record voice note';
+    }
     showToast(`Could not start voice recording: ${friendlyError(error)}`);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function formatVoiceDuration(milliseconds) {
+  const totalSeconds = Math.floor(milliseconds / 1000);
+  const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
+  const seconds = (totalSeconds % 60).toString().padStart(2, '0');
+  return `${minutes}:${seconds}`;
+}
+
+function discardVoiceNote() {
+  clearInterval(state.voiceTimer);
+  state.voiceTimer = null;
+  const recorder = state.voiceRecorder;
+  if (recorder?.state === 'recording') recorder.stop();
+  state.voiceRecorder = null;
+  state.voiceStream?.getTracks().forEach((track) => track.stop());
+  state.voiceStream = null;
+  state.voiceFile = null;
+  state.voiceChat = null;
+  if (state.voicePreviewUrl) URL.revokeObjectURL(state.voicePreviewUrl);
+  state.voicePreviewUrl = null;
+  const preview = $('voice-note-preview');
+  if (preview) {
+    preview.pause();
+    preview.removeAttribute('src');
+    preview.load();
+  }
+  const recordingControls = $('recording-controls');
+  if (recordingControls) recordingControls.hidden = true;
+  const previewControls = $('voice-note-preview-controls');
+  if (previewControls) previewControls.hidden = true;
+  const recordingStatus = $('recording-status');
+  if (recordingStatus) recordingStatus.textContent = '';
+  const previewStatus = $('voice-note-preview-status');
+  if (previewStatus) previewStatus.textContent = '';
+  const button = $('voice-note');
+  if (button) {
+    button.textContent = '🎙';
+    button.setAttribute('aria-label', 'Record voice note');
+    button.title = 'Record voice note';
+    button.disabled = false;
   }
 }
 
@@ -3105,6 +3206,25 @@ function wire() {
     }
     if (event.target.closest('#attach-media')) {
       $('chat-media-input').click();
+      return;
+    }
+    if (event.target.closest('#voice-note-discard-recording, #voice-note-discard')) {
+      discardVoiceNote();
+      return;
+    }
+    if (event.target.closest('#voice-note-send')) {
+      const sendButton = $('voice-note-send');
+      if (!state.voiceFile || !state.voiceChat) return;
+      sendButton.disabled = true;
+      try {
+        await sendChatMedia(state.voiceFile, true, '', state.voiceChat);
+        discardVoiceNote();
+        showToast('Voice note sent.');
+      } catch (error) {
+        showToast(`Could not send voice note: ${friendlyError(error)}`);
+      } finally {
+        sendButton.disabled = false;
+      }
       return;
     }
     if (event.target.closest('#voice-note')) {

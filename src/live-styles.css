@@ -434,7 +434,24 @@
   border: 1px solid var(--line);
   font-size: 16px;
 }
-.recording-status { align-self: center; color: #ff9a78; font-size: 10px; }
+.recording-controls, .voice-note-preview {
+  flex: 0 0 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.recording-controls[hidden], .voice-note-preview[hidden] { display: none; }
+.recording-status { flex: 1; align-self: center; color: #ff9a78; font-size: 10px; }
+.voice-note-preview audio { min-width: 0; flex: 1 1 180px; height: 38px; }
+.conversation-footer .voice-note-discard {
+  min-height: 36px;
+  padding: 0 12px;
+  color: #e7d6c8;
+  background: #211b17;
+  border: 1px solid #49372b;
+}
+.conversation-footer .voice-note-discard:hover { background: #34251b; }
 .channel-readonly-note { width: 100%; padding: 8px; color: var(--muted); text-align: center; font-size: 11px; }
 
 .auth-panel, .setup-panel {
