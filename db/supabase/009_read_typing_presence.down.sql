@@ -3,9 +3,8 @@ drop policy if exists "Chat members can send private live events" on realtime.me
 
 drop function if exists public.can_access_private_chat_topic(text);
 drop function if exists public.mark_chat_read(uuid);
-drop trigger if exists message_reads_sort_id_same_chat on public.message_reads;
-drop function if exists public.validate_message_read_sort_id();
 drop table if exists public.message_reads;
+drop function if exists public.validate_message_read_sort_id();
 
 create or replace function public.touch_my_presence()
 returns timestamptz

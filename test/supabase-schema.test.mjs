@@ -48,6 +48,7 @@ test(
           private boolean not null default false,
           inserted_at timestamptz not null default now()
         );
+        alter table realtime.messages enable row level security;
         create function realtime.topic() returns text
           language sql stable
           as $$ select current_setting('realtime.topic', true) $$;

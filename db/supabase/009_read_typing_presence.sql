@@ -172,7 +172,6 @@ $$;
 revoke all on function public.can_access_private_chat_topic(text) from public, anon;
 grant execute on function public.can_access_private_chat_topic(text) to authenticated;
 
-alter table realtime.messages enable row level security;
 drop policy if exists "Chat members can receive private live events" on realtime.messages;
 create policy "Chat members can receive private live events"
   on realtime.messages for select to authenticated
