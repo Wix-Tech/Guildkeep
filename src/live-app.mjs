@@ -1,6 +1,13 @@
 import './live-styles.css';
 import brandLogoUrl from '../brand/logo.svg';
 import {
+  activeTypingUsers,
+  compareMessageOrder,
+  isScrolledToBottom,
+  readMessageCount,
+  shouldSendTyping,
+} from './chat-live-state.mjs';
+import {
   createDirectChat,
   createGroup,
   createChannel,
@@ -26,6 +33,7 @@ import {
   listMessages,
   listMyChannels,
   markChatRead,
+  listChatReadReceipts,
   onAuthChange,
   runGroupCommand,
   sendMessage,
@@ -39,6 +47,8 @@ import {
   uploadMedia,
   subscribeToChannel,
   subscribeToReactions,
+  subscribeToReadReceipts,
+  subscribeToChatLive,
   subscribeToChatChanges,
   signIn,
   signOut,
@@ -103,6 +113,19 @@ const state = {
   profileLightboxIndex: -1,
   profileLightboxOrigin: null,
   presenceInterval: null,
+  presenceLastTouchAt: 0,
+  unsubscribeReadReceipts: null,
+  chatLive: null,
+  readReceipts: [],
+  lastReadAckMessageId: null,
+  readAckArmed: false,
+  scrollIntentUntil: 0,
+  lastTypingSentAt: 0,
+  typingByUser: new Map(),
+  typingTimers: new Map(),
+  onlineUserIds: new Set(),
+  directPeerProfile: null,
+  readAckInFlightChatId: null,
 };
 
 const esc = (value) =>
@@ -121,6 +144,111 @@ function showToast(message) {
   toast.classList.add('show');
   clearTimeout(showToast.timeout);
   showToast.timeout = setTimeout(() => toast.classList.remove('show'), 2400);
+}
+
+function chatType(chat = state.activeChat) {
+  return chat?.chat_type ?? (chat?.is_group ? 'group' : 'direct');
+}
+
+function chatMatchesActiveView(chat = state.activeChat) {
+  const expectedType = { chats: 'direct', groups: 'group', channels: 'channel' }[state.currentView];
+  return Boolean(chat && chatType(chat) === expectedType);
+}
+
+function conversationIsVisible() {
+  if (!chatMatchesActiveView()) return false;
+  return !window.matchMedia('(max-width: 760px)').matches
+    || $('conversation').classList.contains('is-open');
+}
+
+function clearTypingTimers() {
+  for (const timer of state.typingTimers.values()) clearTimeout(timer);
+  state.typingTimers.clear();
+  state.typingByUser.clear();
+}
+
+function stopChatLive() {
+  state.unsubscribeMessages?.();
+  state.unsubscribeChat?.();
+  state.unsubscribeReactions?.();
+  state.unsubscribeReadReceipts?.();
+  state.chatLive?.unsubscribe();
+  state.unsubscribeMessages = null;
+  state.unsubscribeChat = null;
+  state.unsubscribeReactions = null;
+  state.unsubscribeReadReceipts = null;
+  state.chatLive = null;
+  state.readReceipts = [];
+  state.onlineUserIds = new Set();
+  state.directPeerProfile = null;
+  state.lastReadAckMessageId = null;
+  state.readAckInFlightChatId = null;
+  state.readAckArmed = false;
+  state.lastTypingSentAt = 0;
+  clearTypingTimers();
+}
+
+async function updateLastSeen() {
+  const userId = state.session?.user?.id;
+  const now = Date.now();
+  if (!userId || now - state.presenceLastTouchAt < 60_000) return;
+  state.presenceLastTouchAt = now;
+  try {
+    await touchMyPresence();
+  } catch (error) {
+    console.warn('Could not update last-seen time.', error);
+    showToast(`Presence update failed: ${friendlyError(error)}`);
+  }
+}
+
+function renderTypingIndicator() {
+  const indicator = $('chat-typing');
+  if (!indicator) return;
+  const userIds = activeTypingUsers(state.typingByUser, Date.now())
+    .filter((userId) => userId !== state.session?.user?.id);
+  const chat = state.activeChat;
+  if (!userIds.length || !['direct', 'group'].includes(chatType(chat))) {
+    indicator.hidden = true;
+    indicator.textContent = '';
+    return;
+  }
+  if (chatType(chat) === 'direct') {
+    const userId = userIds[0];
+    const name = chat?.participants?.find((person) => person.id === userId)?.display_name
+      ?? state.directPeerProfile?.display_name
+      ?? 'Someone';
+    indicator.textContent = `${name} is typing…`;
+  } else {
+    indicator.textContent = userIds.length === 1
+      ? '1 member is typing…'
+      : `${userIds.length} members are typing…`;
+  }
+  indicator.hidden = false;
+}
+
+function renderPresenceIndicator() {
+  const indicator = $('chat-presence');
+  if (!indicator) return;
+  const chat = state.activeChat;
+  if (chatType(chat) === 'direct') {
+    const peerId = chat?.participants?.find((person) => person.id !== state.session?.user?.id)?.id;
+    if (!peerId) {
+      indicator.textContent = '';
+      return;
+    }
+    const online = state.onlineUserIds.has(peerId);
+    indicator.textContent = online
+      ? 'Online'
+      : state.directPeerProfile?.last_seen_at
+        ? formatLastSeen(state.directPeerProfile.last_seen_at)
+        : 'Offline';
+    indicator.classList.toggle('is-online', online);
+    return;
+  }
+  const onlineCount = [...state.onlineUserIds]
+    .filter((userId) => userId !== state.session?.user?.id).length;
+  indicator.textContent = onlineCount ? `${onlineCount} online` : '';
+  indicator.classList.toggle('is-online', onlineCount > 0);
 }
 
 function friendlyError(error) {
@@ -155,15 +283,11 @@ document.querySelectorAll('.brand-logo').forEach((image) => {
 function clearWorkspace() {
   clearInterval(state.presenceInterval);
   state.presenceInterval = null;
+  state.presenceLastTouchAt = 0;
+  stopChatLive();
   if (!$('profile-preview').hidden) closeProfilePreview(false);
-  state.unsubscribeMessages?.();
-  state.unsubscribeChat?.();
   state.unsubscribeMemberships?.();
-  state.unsubscribeReactions?.();
-  state.unsubscribeMessages = null;
-  state.unsubscribeChat = null;
   state.unsubscribeMemberships = null;
-  state.unsubscribeReactions = null;
   state.session = null;
   state.initializingUserId = null;
   state.profile = null;
@@ -319,6 +443,12 @@ function renderChats() {
 }
 
 function updateNavigation(view) {
+  if (state.currentView !== view) {
+    stopChatLive();
+    state.activeChatId = null;
+    state.activeChat = null;
+    state.messages = [];
+  }
   state.currentView = view;
   $('app-workspace').dataset.view = view;
   document.querySelectorAll('.nav-item').forEach((button) => {
@@ -522,6 +652,8 @@ function formatMessageTime(timestamp) {
 function renderMessages() {
   const list = $('message-list');
   if (!list) return;
+  const wasAtBottom = list.scrollHeight <= list.clientHeight || isScrolledToBottom(list);
+  const previousScrollTop = list.scrollTop;
   if (state.loadingMessages) {
     list.innerHTML = '<div class="loading">Loading messages…</div>';
     return;
@@ -539,6 +671,18 @@ function renderMessages() {
       const senderUsername = message.sender?.username ?? '';
       const replyTo = Array.isArray(message.reply_to) ? message.reply_to[0] : message.reply_to;
       const reactions = state.reactions.get(message.id) ?? [];
+      const readCount = readMessageCount(
+        state.messages,
+        message.id,
+        state.session.user.id,
+        state.readReceipts,
+      );
+      const directPeerId = state.activeChat?.participants
+        ?.find((person) => person.id !== state.session.user.id)?.id;
+      const peerReceipt = state.readReceipts.find((receipt) => receipt.user_id === directPeerId);
+      const readByPeer = peerReceipt
+        ? readMessageCount(state.messages, message.id, state.session.user.id, [peerReceipt]) > 0
+        : false;
       const media = renderMessageMedia(message);
       const reactionMarkup = ['👍', '❤️', '😂', '😮', '😢', '🙏']
         .map((emoji) => {
@@ -583,12 +727,20 @@ function renderMessages() {
           </button>` : ''}
           ${message.body ? `<span class="message-text">${esc(message.body)}</span>` : ''}
           ${media}
-          <span class="message-meta">${message.edited_at ? 'edited · ' : ''}${esc(formatMessageTime(message.created_at))}</span>
+          <span class="message-meta">${message.edited_at ? 'edited · ' : ''}${esc(formatMessageTime(message.created_at))}
+            ${own && state.activeChat?.chat_type === 'direct'
+              ? `<span class="message-sent-tick ${readByPeer ? 'is-read' : ''}" aria-label="${readByPeer ? 'Read' : 'Sent'}">${readByPeer ? '✓✓' : '✓'}</span>`
+              : own && state.activeChat?.chat_type === 'group' && readCount
+                ? `<button class="message-read-count" type="button" data-read-count="${readCount}"
+                    title="${readCount} member${readCount === 1 ? '' : 's'} read this message">${readCount} read</button>`
+                : ''}
+          </span>
           ${reactionMarkup ? `<div class="message-reactions" aria-label="Reactions">${reactionMarkup}</div>` : ''}
         </div>`;
     })
     .join('');
-  list.scrollTop = list.scrollHeight;
+  list.scrollTop = wasAtBottom ? list.scrollHeight : previousScrollTop;
+  if (wasAtBottom && state.readAckArmed) void markChatReadIfAtBottom();
 }
 
 function updateReplyStrip() {
@@ -690,7 +842,9 @@ function profilePreviewMarkup(preview, contextChatId) {
       <div>
         <h2 id="profile-preview-name">${esc(profile.display_name)}</h2>
         <span>@${esc(profile.username)}</span>
-        <small id="profile-preview-status">${esc(formatLastSeen(preview.last_seen_at))}</small>
+        <small id="profile-preview-status">${esc(state.onlineUserIds.has(profile.id)
+          ? 'Online now'
+          : formatLastSeen(preview.last_seen_at))}</small>
       </div>
     </header>
     <p class="profile-preview-about">${esc(profile.bio || 'No about information added.')}</p>
@@ -950,7 +1104,6 @@ async function sendChatMedia(file, voiceNote = false, caption = '', chat = state
       renderMessages();
     }
     await refreshChats();
-    await markChatRead(chat.chat_id, state.session.user.id);
   } catch (error) {
     if (media.path) {
       try {
@@ -982,6 +1135,8 @@ function renderConversation() {
         <div class="conversation-title">
           <strong>${esc(chat.chat_name)}</strong>
           <span id="chat-connection">${type === 'group' ? `${chat.participants.length + 1} members` : type === 'channel' ? `${chat.participants?.length ?? 0} subscribers` : 'Private chat'} · connecting…</span>
+          <span id="chat-presence" class="chat-presence"></span>
+          <span id="chat-typing" class="chat-typing" hidden></span>
         </div>
         ${type !== 'direct' ? '<button id="group-info" class="icon-button group-info-button" type="button" aria-label="Conversation details" title="Conversation details">⋯</button>' : ''}
       </header>
@@ -1002,6 +1157,8 @@ function renderConversation() {
     </div>`;
   updateReplyStrip();
   renderMessages();
+  renderPresenceIndicator();
+  renderTypingIndicator();
 }
 
 function renderPeopleSearchResults(people, query) {
@@ -1114,8 +1271,7 @@ async function openChat(chatId) {
   const chat = [...state.chats, ...state.channels, ...state.discoveredChannels]
     .find((item) => item.chat_id === chatId);
   if (!chat) return;
-  state.unsubscribeMessages?.();
-  state.unsubscribeChat?.();
+  stopChatLive();
   state.activeChatId = chatId;
   state.activeChat = chat;
   state.replyingTo = null;
@@ -1148,23 +1304,139 @@ async function openChat(chatId) {
     state.unsubscribeReactions = subscribeToReactions(chatId, () => {
       if (state.activeChatId === chatId) void refreshReactions(chatId);
     });
+    state.unsubscribeReadReceipts = subscribeToReadReceipts(
+      chatId,
+      () => { void refreshChatReadReceipts(chatId); },
+      (status) => {
+        if (state.activeChatId === chatId
+          && ['CHANNEL_ERROR', 'TIMED_OUT'].includes(status)) {
+          showToast('Read receipts are reconnecting.');
+        }
+      },
+    );
+    state.chatLive = subscribeToChatLive(chatId, state.session.user.id, {
+      onTyping: (payload) => handleTypingEvent(chatId, payload),
+      onPresence: (presence) => {
+        if (state.activeChatId !== chatId) return;
+        state.onlineUserIds = new Set(Object.keys(presence));
+        renderPresenceIndicator();
+        const previewStatus = $('profile-preview-status');
+        if (previewStatus && state.profilePreview?.profile?.id) {
+          previewStatus.textContent = state.onlineUserIds.has(state.profilePreview.profile.id)
+            ? 'Online now'
+            : formatLastSeen(state.profilePreview.last_seen_at);
+        }
+      },
+      onStatus: (status) => {
+        if (state.activeChatId !== chatId) return;
+        if (['CHANNEL_ERROR', 'TIMED_OUT'].includes(status)) {
+          void updateLastSeen();
+          showToast('Chat presence is reconnecting.');
+        } else if (status === 'SUBSCRIBED') {
+          void updateLastSeen();
+          renderPresenceIndicator();
+        }
+      },
+      onError: (error) => {
+        if (state.activeChatId === chatId) {
+          showToast(`Chat presence failed: ${friendlyError(error)}`);
+        }
+      },
+    });
+    const peer = chat.participants?.find((person) => person.id !== state.session.user.id);
+    if (chat.chat_type === 'direct' && peer) {
+      void getProfile(peer.id).then((profile) => {
+        if (state.activeChatId !== chatId) return;
+        state.directPeerProfile = profile;
+        renderPresenceIndicator();
+      }).catch((error) => {
+        if (state.activeChatId === chatId) {
+          showToast(`Could not load chat presence details: ${friendlyError(error)}`);
+        }
+      });
+    }
     const messages = await hydrateMessages(await listMessages(chatId));
     if (state.activeChatId !== chatId) return;
     state.messages = messages;
     const byId = new Map(state.messages.map((message) => [message.id, message]));
     for (const message of state.pendingMessages) byId.set(message.id, message);
-    state.messages = [...byId.values()].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    state.messages = [...byId.values()].sort(compareMessageOrder);
     state.pendingMessages = [];
     state.loadingMessages = false;
+    try {
+      await refreshChatReadReceipts(chatId);
+    } catch (error) {
+      showToast(`Could not load read receipts: ${friendlyError(error)}`);
+    }
     await refreshReactions(chatId);
     renderMessages();
-    await markChatRead(chatId, state.session.user.id);
     await refreshChats();
   } catch (error) {
     state.loadingMessages = false;
     renderMessages();
     showToast(friendlyError(error));
   }
+}
+
+async function refreshChatReadReceipts(chatId) {
+  const receipts = await listChatReadReceipts(chatId);
+  if (state.activeChatId !== chatId) return;
+  state.readReceipts = receipts;
+  renderMessages();
+}
+
+async function markChatReadIfAtBottom() {
+  const chatId = state.activeChatId;
+  const list = $('message-list');
+  const latest = state.messages.at(-1);
+  if (
+    !state.readAckArmed
+    || !latest
+    || !list
+    || !conversationIsVisible()
+    || !isScrolledToBottom(list)
+    || state.lastReadAckMessageId === latest.id
+    || state.readAckInFlightChatId === chatId
+  ) return;
+  state.readAckInFlightChatId = chatId;
+  try {
+    const receipt = await markChatRead(chatId);
+    if (state.activeChatId !== chatId) return;
+    state.lastReadAckMessageId = receipt.last_read_sort_id;
+    state.readReceipts = [
+      ...state.readReceipts.filter((item) => item.user_id !== state.session.user.id),
+      receipt,
+    ];
+    renderMessages();
+    await refreshChats();
+  } catch (error) {
+    showToast(`Could not mark this chat as read: ${friendlyError(error)}`);
+  } finally {
+    if (state.readAckInFlightChatId === chatId) state.readAckInFlightChatId = null;
+  }
+}
+
+function armReadAtBottom(list) {
+  state.scrollIntentUntil = Date.now() + 2000;
+  if (!isScrolledToBottom(list) || !conversationIsVisible()) return;
+  state.readAckArmed = true;
+  void markChatReadIfAtBottom();
+}
+
+function handleTypingEvent(chatId, payload) {
+  if (state.activeChatId !== chatId || !payload?.user_id
+    || payload.user_id === state.session?.user?.id) return;
+  const knownMember = state.activeChat?.participants
+    ?.some((person) => person.id === payload.user_id);
+  if (!knownMember) return;
+  clearTimeout(state.typingTimers.get(payload.user_id));
+  state.typingByUser.set(payload.user_id, Date.now());
+  state.typingTimers.set(payload.user_id, setTimeout(() => {
+    state.typingByUser.delete(payload.user_id);
+    state.typingTimers.delete(payload.user_id);
+    renderTypingIndicator();
+  }, 4000));
+  renderTypingIndicator();
 }
 
 async function refreshReactions(chatId) {
@@ -1208,7 +1480,6 @@ async function handleIncomingMessage(message) {
     if (state.messages.some((item) => item.id === message.id)) return;
     state.messages.push({ ...message, sender });
     renderMessages();
-    await markChatRead(message.chat_id, state.session.user.id);
     await refreshChats();
   } catch (error) {
     showToast(`New message arrived, but could not refresh it: ${friendlyError(error)}`);
@@ -1217,10 +1488,8 @@ async function handleIncomingMessage(message) {
 
 async function initialiseWorkspace(session) {
   if (!session) {
-    state.unsubscribeMessages?.();
-    state.unsubscribeChat?.();
+    stopChatLive();
     state.unsubscribeMemberships?.();
-    state.unsubscribeReactions?.();
     clearWorkspace();
     $('auth-panel').hidden = false;
     $('app-shell').hidden = true;
@@ -1237,16 +1506,12 @@ async function initialiseWorkspace(session) {
   $('auth-panel').hidden = true;
   $('app-shell').hidden = false;
   try {
-    try {
-      await touchMyPresence();
-    } catch (presenceError) {
-      console.warn('Could not update last-seen time.', presenceError);
-    }
+    await updateLastSeen();
     if (state.session?.user?.id !== userId) return;
     clearInterval(state.presenceInterval);
     state.presenceInterval = setInterval(() => {
       if (state.session?.user?.id === userId && document.visibilityState === 'visible') {
-        void touchMyPresence().catch(() => {});
+        void updateLastSeen();
       }
     }, 60_000);
     const profile = await getProfile(userId);
@@ -1696,6 +1961,43 @@ async function forwardSelectedMessage(targetChatId) {
 
 function wire() {
   let messagePressOrigin = null;
+  $('conversation').addEventListener('input', (event) => {
+    if (!event.target.matches('#message-form textarea')
+      || !state.chatLive
+      || !['direct', 'group'].includes(chatType())) return;
+    const now = Date.now();
+    if (!shouldSendTyping(state.lastTypingSentAt, now)) return;
+    state.lastTypingSentAt = now;
+    void state.chatLive.broadcastTyping();
+  });
+  $('conversation').addEventListener('wheel', (event) => {
+    const list = event.target.closest('#message-list');
+    if (list) armReadAtBottom(list);
+  }, true);
+  $('conversation').addEventListener('touchmove', (event) => {
+    const list = event.target.closest('#message-list');
+    if (list) armReadAtBottom(list);
+  }, { capture: true, passive: true });
+  $('conversation').addEventListener('pointerdown', (event) => {
+    if (event.target.closest('#message-list')) state.scrollIntentUntil = Date.now() + 2000;
+  }, true);
+  $('conversation').addEventListener('scroll', (event) => {
+    const list = event.target;
+    if (
+      list.id === 'message-list'
+      && Date.now() <= state.scrollIntentUntil
+      && isScrolledToBottom(list)
+      && conversationIsVisible()
+    ) {
+      state.readAckArmed = true;
+      void markChatReadIfAtBottom();
+    }
+  }, true);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') void updateLastSeen();
+  });
+  window.addEventListener('pagehide', () => { void updateLastSeen(); });
+
   $('auth-toggle').addEventListener('click', () => {
     setAuthMode(state.authMode === 'signin' ? 'signup' : 'signin');
   });
@@ -2235,6 +2537,7 @@ function wire() {
     }
     if (event.target.closest('#conversation-back')) {
       $('conversation').classList.remove('is-open');
+      stopChatLive();
       return;
     }
     const statusButton = event.target.closest('[data-delete-status]');
@@ -2397,7 +2700,6 @@ function wire() {
         renderMessages();
       }
       await refreshChats();
-      await markChatRead(message.chat_id, senderId);
     } catch (error) {
       showToast(friendlyError(error));
     } finally {
@@ -2407,6 +2709,12 @@ function wire() {
   });
 
   $('conversation').addEventListener('click', async (event) => {
+    const readCount = event.target.closest('[data-read-count]');
+    if (readCount) {
+      const count = Number(readCount.dataset.readCount);
+      showToast(`${count} member${count === 1 ? '' : 's'} read this message.`);
+      return;
+    }
     if (event.target.closest('#attach-media')) {
       $('chat-media-input').click();
       return;

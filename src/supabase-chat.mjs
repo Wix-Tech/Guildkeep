@@ -55,7 +55,7 @@ export function onAuthChange(callback) {
 export async function getProfile(userId) {
   const { data, error } = await client()
     .from('profiles')
-    .select('id, username, display_name, bio, avatar_path, status_visibility')
+    .select('id, username, display_name, bio, avatar_path, status_visibility, last_seen_at')
     .eq('id', userId)
     .single();
   if (error) throw error;
@@ -403,13 +403,21 @@ export async function listChatReactions(chatId) {
   return data ?? [];
 }
 
-export async function markChatRead(chatId, userId) {
-  const { error } = await client()
-    .from('chat_member_settings')
-    .update({ last_read_at: new Date().toISOString() })
-    .eq('chat_id', chatId)
-    .eq('user_id', userId);
+export async function listChatReadReceipts(chatId) {
+  const { data, error } = await client()
+    .from('message_reads')
+    .select('chat_id, user_id, last_read_sort_id, updated_at')
+    .eq('chat_id', chatId);
   if (error) throw error;
+  return data ?? [];
+}
+
+export async function markChatRead(chatId) {
+  const { data, error } = await client().rpc('mark_chat_read', {
+    target_chat_id: chatId,
+  });
+  if (error) throw error;
+  return data;
 }
 
 export function subscribeToMessages(chatId, onMessage, onStatus) {
@@ -478,4 +486,79 @@ export function subscribeToReactions(chatId, onReaction) {
     )
     .subscribe();
   return () => client().removeChannel(channel);
+}
+
+export function subscribeToReadReceipts(chatId, onReceipt, onStatus) {
+  const channel = client()
+    .channel(`chat-read-receipts:${chatId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'message_reads',
+        filter: `chat_id=eq.${chatId}`,
+      },
+      onReceipt,
+    )
+    .subscribe(onStatus);
+  return () => client().removeChannel(channel);
+}
+
+export function subscribeToChatLive(chatId, userId, handlers) {
+  const channel = client().channel(`chat-live:${chatId}`, {
+    config: {
+      private: true,
+      presence: { key: userId },
+    },
+  });
+  let subscribed = false;
+  channel
+    .on('broadcast', { event: 'typing' }, ({ payload }) => handlers.onTyping(payload))
+    .on('presence', { event: 'sync' }, () => handlers.onPresence(channel.presenceState()))
+    .on('presence', { event: 'join' }, () => handlers.onPresence(channel.presenceState()))
+    .on('presence', { event: 'leave' }, () => handlers.onPresence(channel.presenceState()))
+    .subscribe(async (status) => {
+      subscribed = status === 'SUBSCRIBED';
+      handlers.onStatus(status);
+      if (!subscribed) return;
+      try {
+        const response = await channel.track({ user_id: userId });
+        if (response !== 'ok') {
+          handlers.onError(new Error(`Presence tracking returned "${response}".`));
+        }
+      } catch (error) {
+        handlers.onError(error);
+      }
+    });
+
+  return {
+    async broadcastTyping() {
+      if (!subscribed) return;
+      try {
+        const response = await channel.send({
+          type: 'broadcast',
+          event: 'typing',
+          payload: { user_id: userId },
+        });
+        if (response !== 'ok') {
+          handlers.onError(new Error(`Typing broadcast returned "${response}".`));
+        }
+      } catch (error) {
+        handlers.onError(error);
+      }
+    },
+    unsubscribe() {
+      subscribed = false;
+      return client().removeChannel(channel).then((status) => {
+        if (status !== 'ok') {
+          handlers.onError(new Error(`Chat presence cleanup returned "${status}".`));
+        }
+        return status;
+      }).catch((error) => {
+        handlers.onError(error);
+        return 'error';
+      });
+    },
+  };
 }

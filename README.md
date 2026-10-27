@@ -70,7 +70,8 @@ npm --prefix product run serve:admin    # http://0.0.0.0:8788
 The bundled `demo.html` remains an offline, read-only search preview. The separate
 `index.html` app is the hosted real-time client: Supabase Auth, separate
 one-to-one chats, groups, public channels, contact-only status updates, profile
-photos, media and voice-note messages, reactions, and message actions for
+photos, media and voice-note messages, reactions, read receipts, typing
+indicators, member-only online presence, and message actions for
 editing, deleting, and forwarding. Group and channel admins can edit names,
 descriptions, visibility, chat pictures, posting controls, and rules from the
 details screen. Users can choose contacts-only or private status visibility and
@@ -103,15 +104,21 @@ can access.
    `db/supabase/005_chat_and_status_settings.sql` and
    `db/supabase/006_profile_preview.sql` and
    `db/supabase/007_chat_reaction_scoping.sql`, and
-   `db/supabase/008_message_replies.sql` in order in its SQL Editor. To roll
+   `db/supabase/008_message_replies.sql` and
+   `db/supabase/009_read_typing_presence.sql` in order in its SQL Editor. To roll
    back message replies, run `db/supabase/008_message_replies.down.sql`; to
    roll back reaction scoping, run
-   `db/supabase/007_chat_reaction_scoping.down.sql`. The
+   `db/supabase/007_chat_reaction_scoping.down.sql`; to roll back read receipts
+   and private chat-live policies, run
+   `db/supabase/009_read_typing_presence.down.sql`. The
    migrations create the chat tables, secure profile search and direct-chat
    RPCs, profile trigger, row-level security policies, group roles/admin
    commands, message reactions, invite flows, channels, contact-only statuses,
    chat-avatar storage, admin settings RPCs, status privacy controls, profile
-   preview data/actions, and Realtime subscriptions. Message replies are
+   preview data/actions, read receipts, and private chat-live Realtime policies.
+   Read receipts are visible only to members of the same chat; typing and
+   presence use private per-chat channels and are never stored as message rows.
+   Message replies are
    constrained to the same chat, retain a deleted-message quote for soft
    deletes, and clear the reference when the original is hard deleted. Reaction
    scoping backfills each reaction's chat ID from its message, enforces that relationship, and
@@ -131,8 +138,12 @@ can access.
 6. Use **New group** to create a group. Share its invite link from group details;
    admins can type `/help` in a group conversation to see available commands.
 7. Test media, status, and voice-note flows with files under 25 MB. Apply all
-   eight SQL migrations before testing channels, group/channel settings,
+   nine SQL migrations before testing channels, group/channel settings,
    profile photos, statuses, message media, and replies.
+8. In two accounts, open the same direct chat. Scroll the recipient to the
+   bottom to send a read receipt; confirm the sender sees a grey sent tick turn
+   orange with two ticks. Type in the composer to confirm the other member sees
+   a temporary typing indicator, then verify online/last-seen details.
 
 Email confirmation behavior is controlled by the Supabase Auth project settings.
 The client never contains a service-role key. Direct chat creation and message

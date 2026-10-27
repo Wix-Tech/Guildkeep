@@ -20,6 +20,7 @@ test(
         create role authenticated;
         create schema auth;
         create schema storage;
+        create schema realtime;
         create table auth.users (
           id uuid primary key,
           raw_user_meta_data jsonb not null default '{}'::jsonb
@@ -39,6 +40,17 @@ test(
           bucket_id text not null,
           name text not null
         );
+        create table realtime.messages (
+          topic text,
+          extension text,
+          payload jsonb,
+          event text,
+          private boolean not null default false,
+          inserted_at timestamptz not null default now()
+        );
+        create function realtime.topic() returns text
+          language sql stable
+          as $$ select current_setting('realtime.topic', true) $$;
         alter table storage.objects enable row level security;
         create function storage.foldername(object_name text) returns text[]
           language sql immutable
@@ -48,6 +60,9 @@ test(
         grant usage on schema storage to authenticated;
         grant all on storage.buckets, storage.objects to authenticated;
         grant execute on function storage.foldername(text) to authenticated;
+        grant usage on schema realtime to authenticated;
+        grant select, insert on realtime.messages to authenticated;
+        grant execute on function realtime.topic() to authenticated;
       `);
 
       const migration = await readFile(
@@ -94,6 +109,14 @@ test(
         new URL('../db/supabase/008_message_replies.down.sql', import.meta.url),
         'utf8',
       );
+      const readReceiptsMigration = await readFile(
+        new URL('../db/supabase/009_read_typing_presence.sql', import.meta.url),
+        'utf8',
+      );
+      const readReceiptsDownMigration = await readFile(
+        new URL('../db/supabase/009_read_typing_presence.down.sql', import.meta.url),
+        'utf8',
+      );
       const publicationSetup = migration.lastIndexOf('\ndo $$') + 1;
       assert.ok(publicationSetup > 1, 'migration should configure Realtime publication');
       await db.exec(migration.slice(0, publicationSetup));
@@ -123,6 +146,11 @@ test(
       await db.exec(reactionScopingMigration.slice(0, reactionPublicationSetup));
       await db.exec(messageRepliesMigration);
       await db.exec(messageRepliesMigration);
+      const readReceiptsPublicationSetup = readReceiptsMigration.lastIndexOf('\ndo $$') + 1;
+      assert.ok(readReceiptsPublicationSetup > 1, 'read-receipts migration should configure Realtime publication');
+      assert.match(readReceiptsMigration, /alter publication supabase_realtime add table public\.message_reads/i);
+      await db.exec(readReceiptsMigration.slice(0, readReceiptsPublicationSetup));
+      await db.exec(readReceiptsMigration.slice(0, readReceiptsPublicationSetup));
 
       const userA = '00000000-0000-4000-8000-000000000001';
       const userB = '00000000-0000-4000-8000-000000000002';
@@ -175,6 +203,49 @@ test(
         [chatId, userA],
       );
       assert.ok(inserted[0].id);
+      const { rows: latestVisibleMessage } = await db.query(
+        `select id from public.messages where chat_id = $1
+         order by created_at desc, id desc limit 1`,
+        [chatId],
+      );
+      const { rows: markedRead } = await db.query(
+        `select * from public.mark_chat_read($1)`,
+        [chatId],
+      );
+      assert.equal(markedRead[0].user_id, userA);
+      assert.equal(markedRead[0].last_read_sort_id, latestVisibleMessage[0].id);
+      await db.query(`select public.mark_chat_read($1)`, [chatId]);
+      const { rows: oneReceiptPerUser } = await db.query(
+        `select count(*)::integer as count from public.message_reads
+         where chat_id = $1 and user_id = $2`,
+        [chatId, userA],
+      );
+      assert.equal(oneReceiptPerUser[0].count, 1, 'marking a chat repeatedly updates one receipt');
+      const { rows: secureReadRpc } = await db.query(
+        `select prosecdef, proconfig from pg_proc
+         where oid = 'public.mark_chat_read(uuid)'::regprocedure`,
+      );
+      assert.equal(secureReadRpc[0].prosecdef, true);
+      assert.ok(secureReadRpc[0].proconfig.includes('search_path=""'));
+      const { rows: ownReceiptUpdate } = await db.query(
+        `update public.message_reads set updated_at = updated_at
+         where chat_id = $1 and user_id = $2 returning user_id`,
+        [chatId, userA],
+      );
+      assert.deepEqual(ownReceiptUpdate, [{ user_id: userA }], 'users may update their own receipt');
+      await db.query(
+        `select set_config('realtime.topic', $1, false)`,
+        [`chat-live:${chatId}`],
+      );
+      await db.query(
+        `insert into realtime.messages (topic, extension, event, payload, private)
+         values ($1, 'broadcast', 'typing', '{"user_id":"00000000-0000-4000-8000-000000000001"}', true)`,
+        [`chat-live:${chatId}`],
+      );
+      const { rows: privateLiveEvent } = await db.query(
+        `select topic from realtime.messages`,
+      );
+      assert.deepEqual(privateLiveEvent, [{ topic: `chat-live:${chatId}` }]);
       const { rows: repliedMessage } = await db.query(
         `insert into public.messages (chat_id, sender_id, body, reply_to_id)
          values ($1, $2, 'Reply to Alex', $3)
@@ -221,7 +292,24 @@ test(
         `select public.update_my_profile('Sam Two', 'Around', $1)`,
         [`${userB}/avatar.png`],
       );
+      const { rows: latestForMemberB } = await db.query(
+        `select id from public.messages where chat_id = $1
+         order by created_at desc, id desc limit 1`,
+        [chatId],
+      );
+      const { rows: memberBReceipt } = await db.query(
+        `insert into public.message_reads (chat_id, user_id, last_read_sort_id)
+         values ($1, $2, $3) returning user_id`,
+        [chatId, userB, latestForMemberB[0].id],
+      );
+      assert.deepEqual(memberBReceipt, [{ user_id: userB }], 'members can only insert their own receipt');
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
+      const { rows: otherMemberReceiptUpdate } = await db.query(
+        `update public.message_reads set last_read_sort_id = $1
+         where chat_id = $2 and user_id = $3 returning user_id`,
+        [inserted[0].id, chatId, userB],
+      );
+      assert.deepEqual(otherMemberReceiptUpdate, [], 'users cannot update another member receipt');
       const { rows: peopleWithAvatars } = await db.query(
         `select id, avatar_path from public.search_profiles_with_avatars('sam')`,
       );
@@ -421,6 +509,14 @@ test(
         [groupId, userA],
       );
       const groupMessageId = groupMessage[0].id;
+      await assert.rejects(
+        db.query(
+          `insert into public.message_reads (chat_id, user_id, last_read_sort_id)
+           values ($1, $2, $3)`,
+          [chatId, userA, groupMessageId],
+        ),
+        /read position must belong to the same chat/i,
+      );
       const { rows: postedStatus } = await db.query(
         `select * from public.run_group_command($1, '/status Welcome to the group')`,
         [groupId],
@@ -428,6 +524,11 @@ test(
       assert.equal(postedStatus[0].ok, true);
 
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
+      const { rows: sharedReceipt } = await db.query(
+        `select user_id, last_read_sort_id from public.message_reads where chat_id = $1`,
+        [chatId],
+      );
+      assert.ok(sharedReceipt.some((receipt) => receipt.user_id === userA));
       const { rows: channelPosts } = await db.query(
         `select body from public.messages where chat_id = $1`,
         [createdChannelId],
@@ -493,6 +594,24 @@ test(
         ['', 'Edited message', 'Hello from Alex', 'Reply to Alex'],
       );
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [outsider]);
+      await assert.rejects(
+        db.query(`select public.mark_chat_read($1)`, [chatId]),
+        /not a member/i,
+      );
+      await db.query(
+        `select set_config('realtime.topic', $1, false)`,
+        [`chat-live:${chatId}`],
+      );
+      const { rows: outsiderLiveEvents } = await db.query(`select topic from realtime.messages`);
+      assert.deepEqual(outsiderLiveEvents, [], 'non-members cannot receive private typing/presence events');
+      await assert.rejects(
+        db.query(
+          `insert into realtime.messages (topic, extension, event, payload, private)
+           values ($1, 'broadcast', 'typing', '{}', true)`,
+          [`chat-live:${chatId}`],
+        ),
+        /row-level security/i,
+      );
       await assert.rejects(
         db.query(
           `insert into public.messages (chat_id, sender_id, body, reply_to_id)
@@ -664,7 +783,17 @@ test(
         [profilePreviewGroup, userA, `${profilePreviewGroup}/${userA}/shared-notes.pdf`],
       );
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
-      await db.query(`select public.touch_my_presence()`);
+      const { rows: firstPresenceTouch } = await db.query(
+        `select public.touch_my_presence() as last_seen`,
+      );
+      const { rows: rateLimitedPresenceTouch } = await db.query(
+        `select public.touch_my_presence() as last_seen`,
+      );
+      assert.deepEqual(
+        rateLimitedPresenceTouch[0].last_seen,
+        firstPresenceTouch[0].last_seen,
+        'repeated presence updates within a minute retain the previous last-seen timestamp',
+      );
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
       const { rows: previewRows } = await db.query(
         `select public.profile_preview($1) as preview`,
@@ -780,6 +909,12 @@ test(
         /row-level security|not a member/i,
       );
       await db.exec('reset role');
+      await db.exec(readReceiptsDownMigration);
+      await db.exec(readReceiptsDownMigration);
+      const { rows: removedReadReceipts } = await db.query(
+        `select to_regclass('public.message_reads') as receipts`,
+      );
+      assert.equal(removedReadReceipts[0].receipts, null);
       await db.exec(messageRepliesDownMigration);
       await db.exec(messageRepliesDownMigration);
       const { rows: removedReplyColumn } = await db.query(
