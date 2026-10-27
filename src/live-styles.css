@@ -243,6 +243,23 @@
 .message { position: relative; touch-action: pan-y; user-select: text; }
 .message:focus-visible { outline: 2px solid #e8873a; outline-offset: 2px; }
 .message-text { white-space: pre-wrap; }
+.message-link { color: #ffc092; text-decoration: underline; text-decoration-color: #9c4a16; overflow-wrap: anywhere; }
+.message-link-preview {
+  max-width: min(320px, 100%);
+  display: grid;
+  gap: 4px;
+  margin-top: 7px;
+  padding: 9px 10px;
+  color: #e6ddd3;
+  text-decoration: none;
+  background: #17120e;
+  border: 1px solid #49301f;
+  border-left: 3px solid #e47a43;
+  border-radius: 8px;
+}
+.message-link-preview strong { color: #ffc092; font-size: 11px; }
+.message-link-preview span { overflow: hidden; color: #c9b9ac; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.message-link-preview:hover { background: #21170f; border-color: #84502d; }
 .message.is-sticker .message-text { display: block; font-size: 42px; line-height: 1.15; white-space: nowrap; }
 .message.is-deleted { color: var(--muted); background: transparent; border-style: dashed; box-shadow: none; }
 .forwarded-label { display: block; margin-bottom: 4px; color: #eda879; font-size: 9px; font-style: italic; }

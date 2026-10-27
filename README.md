@@ -49,7 +49,7 @@ product/
 ├─ Dockerfile              production image (node:22-alpine, no dev deps)
 ├─ docker-compose.yml      real Postgres + both servers, one command
 ├─ .env.example            DATABASE_URL, ports, pool size
-└─ test/                   98 tests (node:test): search, bot, bundles, SQLite, Postgres, RLS
+└─ test/                   100 tests (node:test): search, bot, bundles, SQLite, Postgres, RLS
 ```
 
 ## Run
@@ -61,7 +61,7 @@ New here? [`../QUICKSTART.md`](../QUICKSTART.md) is the two-minute version —
 npm --prefix product start              # migrate + seed if needed, run both servers
 npm --prefix product install            # install Supabase, Vite, PGlite, and optional pg
 npm --prefix product run db:reset       # migrate + seed the SQLite dev DB
-npm --prefix product test               # 98 tests
+npm --prefix product test               # 100 tests
 npm --prefix product run build          # build both demos and hosted chat app
 npm --prefix product run serve:search   # http://0.0.0.0:8787
 npm --prefix product run serve:admin    # http://0.0.0.0:8788
@@ -83,6 +83,9 @@ media are limited to 25 MB per file. Status updates expire after 24 hours;
 voice notes can be previewed, discarded, or sent and stop recording after five minutes.
 The composer includes searchable-accessible emoji and sticker tabs; selected
 stickers render as large emoji-style messages without external asset packs.
+Message URLs render as local domain cards without fetching remote metadata or
+images. Only public-domain HTTP(S) links become clickable; unsafe/local targets
+remain plain text.
 Group owners can add and remove
 members, assign admins, lock/open posting, enable announcement mode, configure
 slow mode and anti-link, set rules, rename the group, and post text statuses.

@@ -1,5 +1,6 @@
 import './live-styles.css';
 import brandLogoUrl from '../brand/logo.svg';
+import { renderSafeLinks } from './safe-links.mjs';
 import {
   activeTypingUsers,
   compareMessageOrder,
@@ -759,9 +760,9 @@ function renderMessages() {
             <strong>${esc(replyTo.deleted_at ? 'Message deleted' : (replyTo.sender?.display_name ?? 'Message'))}</strong>
             <span>${esc(replyTo.deleted_at ? 'Message deleted' : (replyTo.body || 'Attachment'))}</span>
           </button>` : ''}
-          ${message.body ? `<span class="message-text">${state.searchJump?.messageId === message.id
+          ${message.body ? `<div class="message-text">${state.searchJump?.messageId === message.id
             ? highlightSearchText(message.body, state.searchJump.term)
-            : esc(message.body)}</span>` : ''}
+            : renderSafeLinks(message.body)}</div>` : ''}
           ${media}
           <span class="message-meta">${message.edited_at ? 'edited · ' : ''}${esc(formatMessageTime(message.created_at))}
             ${own && state.activeChat?.chat_type === 'direct'
