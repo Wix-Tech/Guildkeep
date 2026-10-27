@@ -892,6 +892,24 @@
 .message-search-footer .secondary-button { min-height: 34px; padding: 0 10px; font-size: 10px; }
 .message-search-footer > span { min-width: 100px; color: var(--muted); text-align: center; font-size: 10px; }
 .message-flash { animation: message-search-flash 2s ease-out; }
+
+.pinned-message-banner { width: 100%; min-height: 48px; display: flex; align-items: center; gap: 10px; padding: 7px 14px; color: var(--text); text-align: left; background: #17120e; border: 0; border-bottom: 1px solid #34261b; cursor: pointer; }
+.pinned-message-icon { color: #ff9a54; font-size: 19px; }
+.pinned-message-copy { min-width: 0; flex: 1; display: grid; gap: 2px; }
+.pinned-message-copy strong { color: #ffc092; font-size: 11px; }
+.pinned-message-copy > span { overflow: hidden; color: #d3c8bd; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.pinned-message-count { min-width: 23px; padding: 3px 6px; color: #ffd1ad; text-align: center; background: #3a2416; border-radius: 10px; font-size: 10px; }
+.pinned-messages-card { position: relative; width: min(560px, calc(100vw - 28px)); max-height: min(680px, calc(100dvh - 32px)); display: flex; flex-direction: column; gap: 12px; }
+.pinned-messages-card h2 { margin: 0; padding-right: 36px; }
+.pinned-message-list { min-height: 0; overflow-y: auto; }
+.pinned-message-row { display: flex; align-items: stretch; gap: 8px; border-bottom: 1px solid #30251d; }
+.pinned-message-jump { min-width: 0; flex: 1; display: grid; gap: 5px; padding: 12px 8px; color: var(--text); text-align: left; background: transparent; border: 0; cursor: pointer; }
+.pinned-message-jump strong { color: #ffc092; font-size: 12px; }
+.pinned-message-jump span { overflow-wrap: anywhere; color: #ded4ca; font-size: 12px; }
+.pinned-message-jump time { color: var(--muted); font-size: 10px; }
+.pinned-message-remove { align-self: center; width: 34px; height: 34px; color: #ffc092; background: #21170f; border: 1px solid #49301f; border-radius: 8px; cursor: pointer; font-size: 20px; }
+.pinned-message-empty { color: var(--muted); font-size: 12px; }
+.pinned-message-banner:focus-visible, .pinned-message-jump:focus-visible, .pinned-message-remove:focus-visible { outline: 2px solid #ff9a54; outline-offset: -2px; }
 @keyframes message-search-flash {
   0%, 35% { box-shadow: 0 0 0 2px #e8873a, 0 0 22px rgba(232, 135, 58, 0.48); }
   100% { box-shadow: 0 3px 9px rgba(0, 0, 0, 0.12); }

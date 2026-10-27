@@ -33,8 +33,10 @@ import {
   listMessages,
   listMessagesAround,
   listMyChannels,
+  pinChatMessage,
   markChatRead,
   listChatReadReceipts,
+  listChatPins,
   onAuthChange,
   runGroupCommand,
   sendMessage,
@@ -50,6 +52,7 @@ import {
   subscribeToChannel,
   subscribeToReactions,
   subscribeToReadReceipts,
+  subscribeToChatPins,
   subscribeToChatLive,
   subscribeToChatChanges,
   signIn,
@@ -58,6 +61,7 @@ import {
   subscribeToMessages,
   subscribeToMemberships,
   toggleMessageReaction,
+  unpinChatMessage,
   touchMyPresence,
   setProfilePreviewMuted,
   setProfilePreviewBlocked,
@@ -117,6 +121,8 @@ const state = {
   presenceInterval: null,
   presenceLastTouchAt: 0,
   unsubscribeReadReceipts: null,
+  unsubscribePins: null,
+  pinnedMessages: [],
   chatLive: null,
   readReceipts: [],
   lastReadAckMessageId: null,
@@ -186,11 +192,14 @@ function stopChatLive() {
   state.unsubscribeChat?.();
   state.unsubscribeReactions?.();
   state.unsubscribeReadReceipts?.();
+  state.unsubscribePins?.();
   state.chatLive?.unsubscribe();
   state.unsubscribeMessages = null;
   state.unsubscribeChat = null;
   state.unsubscribeReactions = null;
   state.unsubscribeReadReceipts = null;
+  state.unsubscribePins = null;
+  state.pinnedMessages = [];
   state.chatLive = null;
   state.readReceipts = [];
   state.onlineUserIds = new Set();
@@ -1323,6 +1332,7 @@ function renderConversation() {
         </button>
         ${type !== 'direct' ? '<button id="group-info" class="icon-button group-info-button" type="button" aria-label="Conversation details" title="Conversation details">⋯</button>' : ''}
       </header>
+      <div id="pinned-message-banner"></div>
       <div class="conversation-body" id="message-list" aria-live="polite"></div>
       <form id="message-form" class="conversation-footer">
         ${type !== 'channel' || ['owner', 'admin'].includes(chat.my_role) ? `
@@ -1340,6 +1350,7 @@ function renderConversation() {
     </div>`;
   updateReplyStrip();
   renderMessages();
+  renderPinnedMessages();
   renderPresenceIndicator();
   renderTypingIndicator();
 }
@@ -1487,6 +1498,9 @@ async function openChat(chatId, chatOverride = null) {
     state.unsubscribeReactions = subscribeToReactions(chatId, () => {
       if (state.activeChatId === chatId) void refreshReactions(chatId);
     });
+    state.unsubscribePins = subscribeToChatPins(chatId, () => {
+      void refreshChatPins(chatId).catch((error) => showToast(`Could not refresh pinned messages: ${friendlyError(error)}`));
+    });
     state.unsubscribeReadReceipts = subscribeToReadReceipts(
       chatId,
       () => { void refreshChatReadReceipts(chatId); },
@@ -1556,6 +1570,11 @@ async function openChat(chatId, chatOverride = null) {
       && !chatOverride.participants?.some((person) => person.id === state.session.user.id))) {
       await refreshReactions(chatId);
     }
+    try {
+      await refreshChatPins(chatId);
+    } catch (error) {
+      showToast(`Could not load pinned messages: ${friendlyError(error)}`);
+    }
     renderMessages();
     await refreshChats();
   } catch (error) {
@@ -1570,6 +1589,66 @@ async function refreshChatReadReceipts(chatId) {
   if (state.activeChatId !== chatId) return;
   state.readReceipts = receipts;
   renderMessages();
+}
+
+function mayManagePins(chat = state.activeChat) {
+  const type = chatType(chat);
+  return type === 'direct' || (['group', 'channel'].includes(type)
+    && ['owner', 'admin'].includes(chat?.my_role));
+}
+
+function renderPinnedMessages() {
+  const banner = $('pinned-message-banner');
+  if (!banner) return;
+  const pins = state.pinnedMessages;
+  if (!pins.length) {
+    banner.innerHTML = '';
+    return;
+  }
+  const latest = pins[0];
+  const message = latest.message;
+  const preview = message?.deleted_at
+    ? 'Message deleted'
+    : message?.body || (message?.media_path ? 'Attachment' : 'Message');
+  banner.innerHTML = `<button class="pinned-message-banner" type="button" data-open-pinned-messages
+      aria-label="View ${pins.length} pinned ${pins.length === 1 ? 'message' : 'messages'}">
+    <span class="pinned-message-icon" aria-hidden="true">⌖</span>
+    <span class="pinned-message-copy"><strong>${esc(message?.sender?.display_name ?? 'Pinned message')}</strong><span>${esc(preview)}</span></span>
+    <span class="pinned-message-count">${pins.length}</span>
+  </button>`;
+}
+
+function renderPinnedMessageDialog() {
+  const list = $('pinned-message-list');
+  const removeAllowed = mayManagePins();
+  if (!list) return;
+  if (!state.pinnedMessages.length) {
+    list.innerHTML = '<p class="pinned-message-empty">No pinned messages in this conversation.</p>';
+    return;
+  }
+  list.innerHTML = state.pinnedMessages.map((pin) => {
+    const message = pin.message;
+    const preview = message?.deleted_at
+      ? 'Message deleted'
+      : message?.body || (message?.media_path ? 'Attachment' : 'Message');
+    return `<article class="pinned-message-row">
+      <button type="button" class="pinned-message-jump" data-pinned-message="${esc(pin.message_id)}">
+        <strong>${esc(message?.sender?.display_name ?? 'Member')}</strong>
+        <span>${esc(preview)}</span>
+        <time datetime="${esc(pin.pinned_at)}">${esc(new Date(pin.pinned_at).toLocaleString())}</time>
+      </button>
+      ${removeAllowed ? `<button type="button" class="pinned-message-remove" data-unpin-message="${esc(pin.message_id)}"
+        aria-label="Unpin message">×</button>` : ''}
+    </article>`;
+  }).join('');
+}
+
+async function refreshChatPins(chatId) {
+  const pins = await listChatPins(chatId);
+  if (state.activeChatId !== chatId) return;
+  state.pinnedMessages = pins;
+  renderPinnedMessages();
+  if (!$('pinned-messages-dialog').hidden) renderPinnedMessageDialog();
 }
 
 async function markChatReadIfAtBottom() {
@@ -1941,6 +2020,8 @@ function showMessageMenu(messageId, clientX, clientY) {
   const mayEdit = own && Boolean(message.body)
     && Date.now() - new Date(message.created_at).getTime() <= 15 * 60 * 1000;
   const mayDelete = own || (admin && ['group', 'channel'].includes(state.activeChat?.chat_type));
+  const isPinned = state.pinnedMessages.some((pin) => pin.message_id === messageId);
+  const mayPin = mayManagePins();
   const menu = $('message-context');
   menu.innerHTML = `
     <div class="context-reactions" aria-label="React to message">
@@ -1949,6 +2030,7 @@ function showMessageMenu(messageId, clientX, clientY) {
     <button type="button" data-message-action="reply">Reply</button>
     ${mayEdit ? '<button type="button" data-message-action="edit">Edit message</button>' : ''}
     <button type="button" data-message-action="forward">Forward message</button>
+    ${mayPin ? `<button type="button" data-message-action="pin">${isPinned ? 'Unpin message' : 'Pin message'}</button>` : ''}
     ${mayDelete ? '<button type="button" class="danger-action" data-message-action="delete">Delete message</button>' : ''}`;
   menu.hidden = false;
   const width = Math.min(260, window.innerWidth - 24);
@@ -2764,6 +2846,12 @@ function wire() {
   });
 
   $('conversation').addEventListener('click', async (event) => {
+    if (event.target.closest('[data-open-pinned-messages]')) {
+      renderPinnedMessageDialog();
+      $('pinned-messages-dialog').hidden = false;
+      $('pinned-messages-dialog').querySelector('.dialog-close').focus();
+      return;
+    }
     const reply = event.target.closest('[data-message-reply]');
     if (reply) {
       setReplyTarget(reply.dataset.messageReply);
@@ -2861,6 +2949,26 @@ function wire() {
         `You're invited to join ${chat.chat_name} on Guildkeep.`,
         currentInviteUrl(kind, chat.invite_code),
       );
+    }
+  });
+  $('pinned-message-list').addEventListener('click', async (event) => {
+    const removeButton = event.target.closest('[data-unpin-message]');
+    if (removeButton) {
+      removeButton.disabled = true;
+      try {
+        await unpinChatMessage(state.activeChatId, removeButton.dataset.unpinMessage);
+        await refreshChatPins(state.activeChatId);
+        showToast('Message unpinned.');
+      } catch (error) {
+        removeButton.disabled = false;
+        showToast(`Could not unpin message: ${friendlyError(error)}`);
+      }
+      return;
+    }
+    const jumpButton = event.target.closest('[data-pinned-message]');
+    if (jumpButton) {
+      $('pinned-messages-dialog').hidden = true;
+      await scrollToMessage(jumpButton.dataset.pinnedMessage);
     }
   });
   $('group-details-content').addEventListener('submit', async (event) => {
@@ -3127,6 +3235,18 @@ function wire() {
     }
     if (action === 'forward') {
       openForwardDialog(message.id);
+      return;
+    }
+    if (action === 'pin') {
+      try {
+        const isPinned = state.pinnedMessages.some((pin) => pin.message_id === message.id);
+        if (isPinned) await unpinChatMessage(state.activeChatId, message.id);
+        else await pinChatMessage(state.activeChatId, message.id, state.session.user.id);
+        await refreshChatPins(state.activeChatId);
+        showToast(isPinned ? 'Message unpinned.' : 'Message pinned.');
+      } catch (error) {
+        showToast(`Could not update pinned messages: ${friendlyError(error)}`);
+      }
       return;
     }
     if (action === 'delete' && window.confirm('Delete this message for everyone in the conversation?')) {

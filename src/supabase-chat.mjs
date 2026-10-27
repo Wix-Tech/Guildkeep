@@ -149,6 +149,32 @@ export async function searchMessages(searchTerm, chatId = null, pageSize = 25, p
   return data ?? [];
 }
 
+export async function listChatPins(chatId) {
+  const { data, error } = await client()
+    .from('chat_pins')
+    .select('chat_id, message_id, pinned_by, pinned_at, message:messages!chat_pins_message_id_fkey(id, body, created_at, deleted_at, media_path, sender:profiles!messages_sender_id_fkey(display_name))')
+    .eq('chat_id', chatId)
+    .order('pinned_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function pinChatMessage(chatId, messageId, userId) {
+  const { error } = await client()
+    .from('chat_pins')
+    .insert({ chat_id: chatId, message_id: messageId, pinned_by: userId });
+  if (error) throw error;
+}
+
+export async function unpinChatMessage(chatId, messageId) {
+  const { error } = await client()
+    .from('chat_pins')
+    .delete()
+    .eq('chat_id', chatId)
+    .eq('message_id', messageId);
+  if (error) throw error;
+}
+
 export async function getMessage(chatId, messageId) {
   const { data, error } = await client()
     .from('messages')
@@ -530,6 +556,23 @@ export function subscribeToReadReceipts(chatId, onReceipt, onStatus) {
       onReceipt,
     )
     .subscribe(onStatus);
+  return () => client().removeChannel(channel);
+}
+
+export function subscribeToChatPins(chatId, onPin) {
+  const channel = client()
+    .channel(`chat-pins:${chatId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'chat_pins',
+        filter: `chat_id=eq.${chatId}`,
+      },
+      onPin,
+    )
+    .subscribe();
   return () => client().removeChannel(channel);
 }
 

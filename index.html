@@ -246,6 +246,13 @@
       </section>
     </div>
 
+    <div id="pinned-messages-dialog" class="dialog-backdrop" hidden>
+      <section class="dialog pinned-messages-card" role="dialog" aria-modal="true" aria-labelledby="pinned-messages-title">
+        <button class="dialog-close" type="button" data-close-dialog="pinned-messages-dialog" aria-label="Close pinned messages">×</button>
+        <h2 id="pinned-messages-title">Pinned messages</h2>
+        <div id="pinned-message-list" class="pinned-message-list"></div>
+      </section>
+    </div>
     <div id="message-context" class="message-context" hidden role="dialog" aria-label="Message actions"></div>
     <aside id="reaction-details" class="reaction-details" hidden role="dialog" aria-label="Message reactions"></aside>
     <input id="chat-media-input" type="file" accept="image/*,video/mp4,video/webm,audio/*,application/pdf" hidden />

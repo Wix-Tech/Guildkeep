@@ -125,6 +125,14 @@ test(
         new URL('../db/supabase/010_message_search.down.sql', import.meta.url),
         'utf8',
       );
+      const pinnedMessagesMigration = await readFile(
+        new URL('../db/supabase/011_pinned_messages.sql', import.meta.url),
+        'utf8',
+      );
+      const pinnedMessagesDownMigration = await readFile(
+        new URL('../db/supabase/011_pinned_messages.down.sql', import.meta.url),
+        'utf8',
+      );
       const publicationSetup = migration.lastIndexOf('\ndo $$') + 1;
       assert.ok(publicationSetup > 1, 'migration should configure Realtime publication');
       await db.exec(migration.slice(0, publicationSetup));
@@ -161,6 +169,12 @@ test(
       await db.exec(readReceiptsMigration.slice(0, readReceiptsPublicationSetup));
       await db.exec(messageSearchMigration);
       await db.exec(messageSearchMigration);
+      const pinsPublicationSetup = pinnedMessagesMigration.lastIndexOf('\ndo $$') + 1;
+      assert.ok(pinsPublicationSetup > 1, 'pinned-message migration should configure Realtime publication');
+      assert.match(pinnedMessagesMigration, /alter publication supabase_realtime add table public\.chat_pins/i);
+      assert.match(pinnedMessagesDownMigration, /drop table if exists public\.chat_pins/i);
+      await db.exec(pinnedMessagesMigration.slice(0, pinsPublicationSetup));
+      await db.exec(pinnedMessagesMigration.slice(0, pinsPublicationSetup));
 
       const userA = '00000000-0000-4000-8000-000000000001';
       const userB = '00000000-0000-4000-8000-000000000002';
@@ -217,6 +231,33 @@ test(
         [chatId, userA],
       );
       assert.ok(inserted[0].id);
+      const { rows: pin } = await db.query(
+        `insert into public.chat_pins (chat_id, message_id, pinned_by)
+         values ($1, $2, $3) returning message_id`,
+        [chatId, inserted[0].id, userA],
+      );
+      assert.deepEqual(pin, [{ message_id: inserted[0].id }], 'direct-chat members can pin messages');
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
+      const { rows: visiblePins } = await db.query(
+        `select message_id from public.chat_pins where chat_id = $1`,
+        [chatId],
+      );
+      assert.deepEqual(visiblePins, [{ message_id: inserted[0].id }], 'pins are shared with other chat members');
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [outsider]);
+      const { rows: privatePins } = await db.query(
+        `select message_id from public.chat_pins where chat_id = $1`,
+        [chatId],
+      );
+      assert.deepEqual(privatePins, [], 'non-members cannot view private-chat pins');
+      await assert.rejects(
+        db.query(
+          `insert into public.chat_pins (chat_id, message_id, pinned_by)
+           values ($1, $2, $3)`,
+          [chatId, inserted[0].id, outsider],
+        ),
+        /row-level security/i,
+      );
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
       const { rows: prefixMatches } = await db.query(
         `select message_id, snippet from public.search_messages('hell', $1)`,
         [chatId],
@@ -238,6 +279,14 @@ test(
          returning id`,
         [otherChatId, userA],
       );
+      await assert.rejects(
+        db.query(
+          `insert into public.chat_pins (chat_id, message_id, pinned_by)
+           values ($1, $2, $3)`,
+          [otherChatId, inserted[0].id, userA],
+        ),
+        /same chat/i,
+      );
       const { rows: currentChatOnly } = await db.query(
         `select message_id from public.search_messages('hell', $1)`,
         [chatId],
@@ -251,6 +300,38 @@ test(
         [inserted[0].id, otherMatch[0].id].sort(),
         'global search includes the caller’s chats',
       );
+      const { rows: pinGroupRows } = await db.query(
+        `select public.create_group('Pin permissions test', array['sam_two']::text[]) as pin_group_id`,
+      );
+      const pinGroupId = pinGroupRows[0].pin_group_id;
+      const { rows: pinnedGroupMessage } = await db.query(
+        `insert into public.messages (chat_id, sender_id, body)
+         values ($1, $2, 'Pinned group message')
+         returning id`,
+        [pinGroupId, userA],
+      );
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
+      await assert.rejects(
+        db.query(
+          `insert into public.chat_pins (chat_id, message_id, pinned_by)
+           values ($1, $2, $3)`,
+          [pinGroupId, pinnedGroupMessage[0].id, userB],
+        ),
+        /row-level security/i,
+      );
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
+      const { rows: groupPin } = await db.query(
+        `insert into public.chat_pins (chat_id, message_id, pinned_by)
+         values ($1, $2, $3) returning message_id`,
+        [pinGroupId, pinnedGroupMessage[0].id, userA],
+      );
+      assert.deepEqual(groupPin, [{ message_id: pinnedGroupMessage[0].id }], 'group admins can pin messages');
+      await db.query(`select public.delete_message($1)`, [pinnedGroupMessage[0].id]);
+      const { rows: removedDeletedPin } = await db.query(
+        `select message_id from public.chat_pins where message_id = $1`,
+        [pinnedGroupMessage[0].id],
+      );
+      assert.deepEqual(removedDeletedPin, [], 'deleting a message also removes its pin');
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [outsider]);
       await assert.rejects(
         db.query(`select * from public.search_messages('hell', $1)`, [chatId]),
@@ -924,7 +1005,10 @@ test(
       ]);
       assert.equal(preview.profile.username, 'sam_two');
       assert.ok(preview.last_seen_at);
-      assert.deepEqual(preview.common_groups.map((group) => group.name), ['Profile preview group']);
+      assert.deepEqual(preview.common_groups.map((group) => group.name), [
+        'Pin permissions test',
+        'Profile preview group',
+      ]);
       assert.ok(preview.shared_media.some((item) => item.file_name === 'shared.png'));
       assert.ok(!preview.shared_media.some((item) => item.media_path === outsiderOnlyPath));
       assert.ok(preview.shared_links.some((item) => item.body.includes('https://example.test/plan')));
