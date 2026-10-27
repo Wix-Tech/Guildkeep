@@ -113,7 +113,7 @@ export async function listChats() {
 export async function listMessages(chatId) {
   const { data, error } = await client()
     .from('messages')
-    .select('id, chat_id, sender_id, body, created_at, media_path, media_type, file_name, voice_note, edited_at, deleted_at, forwarded_from, sender:profiles!messages_sender_id_fkey(display_name, username, avatar_path)')
+    .select('id, chat_id, sender_id, body, created_at, media_path, media_type, file_name, voice_note, edited_at, deleted_at, forwarded_from, reply_to_id, sender:profiles!messages_sender_id_fkey(display_name, username, avatar_path), reply_to:messages!messages_reply_to_id_fkey(id, body, deleted_at, sender:profiles!messages_sender_id_fkey(display_name, username))')
     .eq('chat_id', chatId)
     .order('created_at', { ascending: false })
     .limit(500);
@@ -121,7 +121,18 @@ export async function listMessages(chatId) {
   return (data ?? []).reverse();
 }
 
-export async function sendMessage(chatId, senderId, body, media = null) {
+export async function getMessage(chatId, messageId) {
+  const { data, error } = await client()
+    .from('messages')
+    .select('id, chat_id, sender_id, body, created_at, media_path, media_type, file_name, voice_note, edited_at, deleted_at, forwarded_from, reply_to_id, sender:profiles!messages_sender_id_fkey(display_name, username, avatar_path), reply_to:messages!messages_reply_to_id_fkey(id, body, deleted_at, sender:profiles!messages_sender_id_fkey(display_name, username))')
+    .eq('chat_id', chatId)
+    .eq('id', messageId)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function sendMessage(chatId, senderId, body, media = null, replyToId = null) {
   const { data, error } = await client()
     .from('messages')
     .insert({
@@ -132,8 +143,9 @@ export async function sendMessage(chatId, senderId, body, media = null) {
       media_type: media?.type ?? null,
       file_name: media?.name ?? null,
       voice_note: Boolean(media?.voiceNote),
+      reply_to_id: replyToId,
     })
-    .select('id, chat_id, sender_id, body, created_at, media_path, media_type, file_name, voice_note, edited_at, deleted_at, forwarded_from')
+    .select('id, chat_id, sender_id, body, created_at, media_path, media_type, file_name, voice_note, edited_at, deleted_at, forwarded_from, reply_to_id, reply_to:messages!messages_reply_to_id_fkey(id, body, deleted_at, sender:profiles!messages_sender_id_fkey(display_name, username))')
     .single();
   if (error) throw error;
   return data;

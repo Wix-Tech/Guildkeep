@@ -74,7 +74,10 @@ photos, media and voice-note messages, reactions, and message actions for
 editing, deleting, and forwarding. Group and channel admins can edit names,
 descriptions, visibility, chat pictures, posting controls, and rules from the
 details screen. Users can choose contacts-only or private status visibility and
-delete their own active status posts. Profile photos, chat attachments, and status
+delete their own active status posts. Messages can also be replied to from the
+action menu, by swiping right on mobile, or with the desktop reply shortcut;
+quote previews jump to the original message and show “Message deleted” when it
+was removed. Profile photos, chat attachments, and status
 media are limited to 25 MB per file. Status updates expire after 24 hours;
 voice-note recording stops after five minutes. Group owners can add and remove
 members, assign admins, lock/open posting, enable announcement mode, configure
@@ -99,15 +102,19 @@ can access.
    `db/supabase/004_channels_media_status.sql`, then
    `db/supabase/005_chat_and_status_settings.sql` and
    `db/supabase/006_profile_preview.sql` and
-   `db/supabase/007_chat_reaction_scoping.sql` in order in its SQL Editor. To
-   roll back the reaction scoping change, run
+   `db/supabase/007_chat_reaction_scoping.sql`, and
+   `db/supabase/008_message_replies.sql` in order in its SQL Editor. To roll
+   back message replies, run `db/supabase/008_message_replies.down.sql`; to
+   roll back reaction scoping, run
    `db/supabase/007_chat_reaction_scoping.down.sql`. The
    migrations create the chat tables, secure profile search and direct-chat
    RPCs, profile trigger, row-level security policies, group roles/admin
    commands, message reactions, invite flows, channels, contact-only statuses,
    chat-avatar storage, admin settings RPCs, status privacy controls, profile
-   preview data/actions, and Realtime subscriptions. Reaction scoping backfills
-   each reaction's chat ID from its message, enforces that relationship, and
+   preview data/actions, and Realtime subscriptions. Message replies are
+   constrained to the same chat, retain a deleted-message quote for soft
+   deletes, and clear the reference when the original is hard deleted. Reaction
+   scoping backfills each reaction's chat ID from its message, enforces that relationship, and
    enables chat-filtered Realtime updates.
 2. Copy `.env.example` to `.env.local` and set `VITE_SUPABASE_URL` and
    `VITE_SUPABASE_ANON_KEY` from the Supabase project API settings. These are
@@ -124,8 +131,8 @@ can access.
 6. Use **New group** to create a group. Share its invite link from group details;
    admins can type `/help` in a group conversation to see available commands.
 7. Test media, status, and voice-note flows with files under 25 MB. Apply all
-   five SQL migrations before testing channels, group/channel settings,
-   profile photos, statuses, and message media.
+   eight SQL migrations before testing channels, group/channel settings,
+   profile photos, statuses, message media, and replies.
 
 Email confirmation behavior is controlled by the Supabase Auth project settings.
 The client never contains a service-role key. Direct chat creation and message

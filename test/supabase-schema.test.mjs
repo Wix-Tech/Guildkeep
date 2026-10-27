@@ -86,6 +86,14 @@ test(
         new URL('../db/supabase/007_chat_reaction_scoping.down.sql', import.meta.url),
         'utf8',
       );
+      const messageRepliesMigration = await readFile(
+        new URL('../db/supabase/008_message_replies.sql', import.meta.url),
+        'utf8',
+      );
+      const messageRepliesDownMigration = await readFile(
+        new URL('../db/supabase/008_message_replies.down.sql', import.meta.url),
+        'utf8',
+      );
       const publicationSetup = migration.lastIndexOf('\ndo $$') + 1;
       assert.ok(publicationSetup > 1, 'migration should configure Realtime publication');
       await db.exec(migration.slice(0, publicationSetup));
@@ -113,6 +121,8 @@ test(
       assert.match(reactionScopingMigration, /chat_reactions_by_chat_message/);
       await db.exec(reactionScopingMigration.slice(0, reactionPublicationSetup));
       await db.exec(reactionScopingMigration.slice(0, reactionPublicationSetup));
+      await db.exec(messageRepliesMigration);
+      await db.exec(messageRepliesMigration);
 
       const userA = '00000000-0000-4000-8000-000000000001';
       const userB = '00000000-0000-4000-8000-000000000002';
@@ -165,6 +175,16 @@ test(
         [chatId, userA],
       );
       assert.ok(inserted[0].id);
+      const { rows: repliedMessage } = await db.query(
+        `insert into public.messages (chat_id, sender_id, body, reply_to_id)
+         values ($1, $2, 'Reply to Alex', $3)
+         returning id, reply_to_id`,
+        [chatId, userA, inserted[0].id],
+      );
+      assert.deepEqual(repliedMessage, [{
+        id: repliedMessage[0].id,
+        reply_to_id: inserted[0].id,
+      }]);
       const { rows: mediaMessage } = await db.query(
         `insert into public.messages (
            chat_id, sender_id, body, media_path, media_type, file_name
@@ -379,6 +399,22 @@ test(
       );
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
       await db.query(`select * from public.run_group_command($1, '/slowmode off')`, [groupId]);
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
+      const { rows: groupReply } = await db.query(
+        `insert into public.messages (chat_id, sender_id, body, reply_to_id)
+         values ($1, $2, 'A reply inside this group', $3) returning reply_to_id`,
+        [groupId, userB, memberMessageId],
+      );
+      assert.deepEqual(groupReply, [{ reply_to_id: memberMessageId }]);
+      await assert.rejects(
+        db.query(
+          `insert into public.messages (chat_id, sender_id, body, reply_to_id)
+           values ($1, $2, 'Cross-chat reply', $3)`,
+          [groupId, userB, inserted[0].id],
+        ),
+        /reply target must belong to the same chat/i,
+      );
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
       const { rows: groupMessage } = await db.query(
         `insert into public.messages (chat_id, sender_id, body)
          values ($1, $2, 'A group hello') returning id`,
@@ -452,7 +488,20 @@ test(
         `select body from public.messages where chat_id = $1`,
         [chatId],
       );
-      assert.deepEqual(visibleToMember.map((row) => row.body), ['Hello from Alex', '', 'Edited message']);
+      assert.deepEqual(
+        visibleToMember.map((row) => row.body).sort(),
+        ['', 'Edited message', 'Hello from Alex', 'Reply to Alex'],
+      );
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [outsider]);
+      await assert.rejects(
+        db.query(
+          `insert into public.messages (chat_id, sender_id, body, reply_to_id)
+           values ($1, $2, 'Unauthorized reply', $3)`,
+          [chatId, outsider, inserted[0].id],
+        ),
+        /row-level security|not a member/i,
+      );
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
       await assert.rejects(
         db.query(`select public.delete_message($1)`, [mediaMessage[0].id]),
         /cannot delete this message/i,
@@ -545,6 +594,25 @@ test(
         [`${chatId}/${userA}/image.png`],
       );
       assert.deepEqual(removedMedia, []);
+      await db.query(`select public.delete_message($1)`, [inserted[0].id]);
+      const { rows: softDeletedReplyTarget } = await db.query(
+        `select reply.reply_to_id, target.deleted_at, target.body
+         from public.messages reply
+         join public.messages target on target.id = reply.reply_to_id
+         where reply.id = $1`,
+        [repliedMessage[0].id],
+      );
+      assert.equal(softDeletedReplyTarget[0].reply_to_id, inserted[0].id);
+      assert.ok(softDeletedReplyTarget[0].deleted_at);
+      assert.equal(softDeletedReplyTarget[0].body, '');
+      await db.exec('reset role');
+      await db.query(`delete from public.messages where id = $1`, [inserted[0].id]);
+      const { rows: hardDeletedReplyTarget } = await db.query(
+        `select reply_to_id from public.messages where id = $1`,
+        [repliedMessage[0].id],
+      );
+      assert.deepEqual(hardDeletedReplyTarget, [{ reply_to_id: null }]);
+      await db.exec('set role authenticated');
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
       await db.query(`select public.leave_chat($1)`, [createdChannelId]);
       const { rows: leftChannels } = await db.query(`select * from public.list_my_channels()`);
@@ -712,6 +780,13 @@ test(
         /row-level security|not a member/i,
       );
       await db.exec('reset role');
+      await db.exec(messageRepliesDownMigration);
+      await db.exec(messageRepliesDownMigration);
+      const { rows: removedReplyColumn } = await db.query(
+        `select column_name from information_schema.columns
+         where table_schema = 'public' and table_name = 'messages' and column_name = 'reply_to_id'`,
+      );
+      assert.deepEqual(removedReplyColumn, []);
       await db.exec(reactionScopingDownMigration);
       await db.exec(reactionScopingDownMigration);
       const { rows: removedReactionChatScope } = await db.query(

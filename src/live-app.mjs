@@ -13,6 +13,7 @@ import {
   forwardMessage,
   getProfile,
   getProfilePreview,
+  getMessage,
   getSession,
   isConfigured,
   joinGroupByInvite,
@@ -85,6 +86,8 @@ const state = {
   discoveredChannels: [],
   statuses: [],
   selectedMessageId: null,
+  replyingTo: null,
+  hoveredMessageId: null,
   messagePressTimer: null,
   voiceRecorder: null,
   voiceChunks: [],
@@ -168,6 +171,8 @@ function clearWorkspace() {
   state.activeChatId = null;
   state.activeChat = null;
   state.messages = [];
+  state.replyingTo = null;
+  state.hoveredMessageId = null;
   state.pendingMessages = [];
   state.loadingMessages = false;
   $('chat-list').replaceChildren();
@@ -532,6 +537,7 @@ function renderMessages() {
       const senderName = message.sender?.display_name ??
         (own ? state.profile.display_name : state.activeChat?.chat_name ?? 'Member');
       const senderUsername = message.sender?.username ?? '';
+      const replyTo = Array.isArray(message.reply_to) ? message.reply_to[0] : message.reply_to;
       const reactions = state.reactions.get(message.id) ?? [];
       const media = renderMessageMedia(message);
       const reactionMarkup = ['👍', '❤️', '😂', '😮', '😢', '🙏']
@@ -550,12 +556,14 @@ function renderMessages() {
         return `<div class="message ${own ? 'outgoing' : ''} is-deleted" data-message-id="${esc(message.id)}"><em>Message deleted</em></div>`;
       }
       return `
-        <div class="message ${own ? 'outgoing' : ''}" data-message-id="${esc(message.id)}">
+        <div class="message ${own ? 'outgoing' : ''}" data-message-id="${esc(message.id)}" tabindex="0">
           <div class="message-quick-reactions" aria-label="Quick reactions">
             ${['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji) => `<button type="button"
               data-quick-reaction="${esc(emoji)}" data-reaction-message="${esc(message.id)}"
               aria-label="React ${esc(emoji)}">${emoji}</button>`).join('')}
           </div>
+          <button class="message-reply-shortcut" type="button" data-message-reply="${esc(message.id)}"
+            aria-label="Reply to ${esc(senderName)}" title="Reply (R)">↶</button>
           ${!own ? `<div class="message-author">
             <button class="profile-preview-trigger message-author-avatar" type="button"
               data-profile-preview-id="${esc(message.sender_id)}"
@@ -568,6 +576,11 @@ function renderMessages() {
             </button>
           </div>` : ''}
           ${message.forwarded_from ? '<span class="forwarded-label">Forwarded</span>' : ''}
+          ${replyTo ? `<button class="message-quote" type="button" data-scroll-to-message="${esc(replyTo.id)}"
+            aria-label="Jump to reply from ${esc(replyTo.sender?.display_name ?? 'Member')}">
+            <strong>${esc(replyTo.deleted_at ? 'Message deleted' : (replyTo.sender?.display_name ?? 'Message'))}</strong>
+            <span>${esc(replyTo.deleted_at ? 'Message deleted' : (replyTo.body || 'Attachment'))}</span>
+          </button>` : ''}
           ${message.body ? `<span class="message-text">${esc(message.body)}</span>` : ''}
           ${media}
           <span class="message-meta">${message.edited_at ? 'edited · ' : ''}${esc(formatMessageTime(message.created_at))}</span>
@@ -576,6 +589,50 @@ function renderMessages() {
     })
     .join('');
   list.scrollTop = list.scrollHeight;
+}
+
+function updateReplyStrip() {
+  const strip = $('reply-strip');
+  if (!strip) return;
+  const replyTo = state.replyingTo;
+  strip.hidden = !replyTo;
+  if (!replyTo) return;
+  const senderName = replyTo.sender?.display_name ??
+    (replyTo.sender_id === state.session?.user?.id ? state.profile?.display_name : state.activeChat?.chat_name) ??
+    'Message';
+  const quote = strip.querySelector('[data-reply-copy]');
+  quote.innerHTML = `<strong>Replying to ${esc(senderName)}</strong><span>${esc(replyTo.deleted_at ? 'Message deleted' : (replyTo.body || 'Attachment'))}</span>`;
+}
+
+function setReplyTarget(messageId) {
+  const message = state.messages.find((item) => item.id === messageId);
+  if (!message || message.deleted_at) return;
+  state.replyingTo = message;
+  updateReplyStrip();
+  $('message-form [name="body"]')?.focus();
+}
+
+async function scrollToMessage(messageId) {
+  let target = document.querySelector(`.message[data-message-id="${CSS.escape(messageId)}"]`);
+  if (!target && state.activeChatId) {
+    try {
+      const message = await getMessage(state.activeChatId, messageId);
+      state.messages.push(...await hydrateMessages([message]));
+      state.messages.sort((left, right) => new Date(left.created_at) - new Date(right.created_at));
+      renderMessages();
+      target = document.querySelector(`.message[data-message-id="${CSS.escape(messageId)}"]`);
+    } catch (error) {
+      showToast(`Could not find the original message: ${friendlyError(error)}`);
+      return;
+    }
+  }
+  if (!target) return;
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  target.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
+  target.classList.remove('message-flash');
+  void target.offsetWidth;
+  target.classList.add('message-flash');
+  setTimeout(() => target.classList.remove('message-flash'), 1400);
 }
 
 function renderMessageMedia(message) {
@@ -882,7 +939,12 @@ async function sendChatMedia(file, voiceNote = false, caption = '', chat = state
   const path = `${chat.chat_id}/${state.session.user.id}/${crypto.randomUUID()}.${mediaExtension(file.type)}`;
   try {
     media.path = await uploadMedia('chat-media', path, file, file.type);
-    await sendMessage(chat.chat_id, state.session.user.id, caption, media);
+    const replyToId = state.replyingTo?.id ?? null;
+    await sendMessage(chat.chat_id, state.session.user.id, caption, media, replyToId);
+    if (state.activeChatId === chat.chat_id) {
+      state.replyingTo = null;
+      updateReplyStrip();
+    }
     if (state.activeChatId === chat.chat_id) {
       state.messages = await hydrateMessages(await listMessages(chat.chat_id));
       renderMessages();
@@ -926,6 +988,10 @@ function renderConversation() {
       <div class="conversation-body" id="message-list" aria-live="polite"></div>
       <form id="message-form" class="conversation-footer">
         ${type !== 'channel' || ['owner', 'admin'].includes(chat.my_role) ? `
+          <div class="reply-strip" id="reply-strip" hidden>
+            <span data-reply-copy></span>
+            <button type="button" class="reply-cancel" data-cancel-reply aria-label="Cancel reply">×</button>
+          </div>
           <button class="composer-tool" type="button" id="attach-media" aria-label="Attach media" title="Attach media">＋</button>
           <button class="composer-tool" type="button" id="voice-note" aria-label="Record voice note" title="Record voice note">🎙</button>
           <textarea name="body" aria-label="Message" placeholder="${type === 'group' ? 'Message or type /help for group commands…' : type === 'channel' ? 'Write a channel post…' : 'Write a message…'}" maxlength="4000" rows="1"></textarea>
@@ -934,6 +1000,7 @@ function renderConversation() {
         ` : '<div class="channel-readonly-note">Only channel admins can publish. Subscribe to receive channel updates.</div>'}
       </form>
     </div>`;
+  updateReplyStrip();
   renderMessages();
 }
 
@@ -1051,6 +1118,8 @@ async function openChat(chatId) {
   state.unsubscribeChat?.();
   state.activeChatId = chatId;
   state.activeChat = chat;
+  state.replyingTo = null;
+  state.hoveredMessageId = null;
   state.messages = [];
   state.pendingMessages = [];
   state.reactions = new Map();
@@ -1425,6 +1494,7 @@ function showMessageMenu(messageId, clientX, clientY) {
     <div class="context-reactions" aria-label="React to message">
       ${['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji) => `<button type="button" data-context-reaction="${emoji}" aria-label="React ${emoji}">${emoji}</button>`).join('')}
     </div>
+    <button type="button" data-message-action="reply">Reply</button>
     ${mayEdit ? '<button type="button" data-message-action="edit">Edit message</button>' : ''}
     <button type="button" data-message-action="forward">Forward message</button>
     ${mayDelete ? '<button type="button" class="danger-action" data-message-action="delete">Delete message</button>' : ''}`;
@@ -2129,6 +2199,22 @@ function wire() {
   });
 
   $('conversation').addEventListener('click', async (event) => {
+    const reply = event.target.closest('[data-message-reply]');
+    if (reply) {
+      setReplyTarget(reply.dataset.messageReply);
+      return;
+    }
+    if (event.target.closest('[data-cancel-reply]')) {
+      state.replyingTo = null;
+      updateReplyStrip();
+      $('message-form [name="body"]')?.focus();
+      return;
+    }
+    const quote = event.target.closest('[data-scroll-to-message]');
+    if (quote) {
+      await scrollToMessage(quote.dataset.scrollToMessage);
+      return;
+    }
     const details = event.target.closest('[data-reaction-details]');
     if (details) {
       await openReactionDetails(
@@ -2301,10 +2387,13 @@ function wire() {
         input.value = '';
         return;
       }
-      const message = await sendMessage(chatId, senderId, body);
+      const replyToId = state.replyingTo?.id ?? null;
+      const message = await sendMessage(chatId, senderId, body, null, replyToId);
       if (state.activeChatId === chatId && !state.messages.some((item) => item.id === message.id)) {
         state.messages.push({ ...message, sender: state.profile });
         input.value = '';
+        state.replyingTo = null;
+        updateReplyStrip();
         renderMessages();
       }
       await refreshChats();
@@ -2352,12 +2441,41 @@ function wire() {
     if (!message || event.target.closest('button, a, audio, video')) return;
     clearTimeout(state.messagePressTimer);
     const { clientX, clientY } = event;
-    messagePressOrigin = { x: clientX, y: clientY, pointerId: event.pointerId };
+    messagePressOrigin = {
+      x: clientX,
+      y: clientY,
+      pointerId: event.pointerId,
+      pointerType: event.pointerType,
+      messageId: message.dataset.messageId,
+      moved: false,
+      longPressed: false,
+    };
     state.messagePressTimer = setTimeout(() => {
+      if (messagePressOrigin) messagePressOrigin.longPressed = true;
       showMessageMenu(message.dataset.messageId, clientX, clientY);
     }, 520);
   });
   $('conversation').addEventListener('pointerup', (event) => {
+    const origin = messagePressOrigin;
+    if (
+      origin
+      && origin.pointerId === event.pointerId
+      && origin.pointerType === 'touch'
+      && !origin.longPressed
+      && event.clientX - origin.x >= 72
+      && Math.abs(event.clientY - origin.y) <= 38
+      && !event.target.closest('button, a, audio, video')
+    ) {
+      clearTimeout(state.messagePressTimer);
+      state.lastTouchTap = null;
+      setReplyTarget(origin.messageId);
+      messagePressOrigin = null;
+      return;
+    }
+    if (origin?.pointerId === event.pointerId && (origin.longPressed || origin.moved)) {
+      state.lastTouchTap = null;
+      return;
+    }
     if (event.pointerType !== 'touch') return;
     const message = event.target.closest('.message[data-message-id]');
     const previousTap = state.lastTouchTap;
@@ -2387,7 +2505,7 @@ function wire() {
     if (!messagePressOrigin || event.pointerId !== messagePressOrigin.pointerId) return;
     if (Math.hypot(event.clientX - messagePressOrigin.x, event.clientY - messagePressOrigin.y) > 12) {
       clearTimeout(state.messagePressTimer);
-      messagePressOrigin = null;
+      messagePressOrigin.moved = true;
     }
   });
   for (const eventName of ['pointerup', 'pointercancel']) {
@@ -2401,6 +2519,14 @@ function wire() {
     if (!message) return;
     event.preventDefault();
     showMessageMenu(message.dataset.messageId, event.clientX, event.clientY);
+  });
+  $('conversation').addEventListener('mouseover', (event) => {
+    const message = event.target.closest('.message[data-message-id]');
+    if (message) state.hoveredMessageId = message.dataset.messageId;
+  });
+  $('conversation').addEventListener('focusin', (event) => {
+    const message = event.target.closest('.message[data-message-id]');
+    if (message) state.hoveredMessageId = message.dataset.messageId;
   });
 
   $('message-context').addEventListener('click', async (event) => {
@@ -2419,6 +2545,10 @@ function wire() {
     const message = state.messages.find((item) => item.id === state.selectedMessageId);
     $('message-context').hidden = true;
     if (!message || !action) return;
+    if (action === 'reply') {
+      setReplyTarget(message.id);
+      return;
+    }
     if (action === 'edit') {
       $('edit-message-form').elements.body.value = message.body;
       $('edit-message-dialog').hidden = false;
@@ -2482,6 +2612,16 @@ function wire() {
   });
 
   document.addEventListener('keydown', (event) => {
+    if (
+      event.key.toLowerCase() === 'r'
+      && !event.repeat
+      && !event.target.matches('input, textarea, select, [contenteditable="true"]')
+      && state.hoveredMessageId
+      && document.querySelector(`.message[data-message-id="${CSS.escape(state.hoveredMessageId)}"]`)
+    ) {
+      event.preventDefault();
+      setReplyTarget(state.hoveredMessageId);
+    }
     if (event.key === 'Escape') {
       state.peopleSearchSequence += 1;
       $('message-context').hidden = true;
