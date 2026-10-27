@@ -60,6 +60,14 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>
             <span>Search messages</span>
           </button>
+          <button id="unread-total-toggle" class="icon-button unread-total-toggle" type="button"
+            aria-label="Chats, no unread messages" title="Open chats">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H6l-3 2 1-4a7.5 7.5 0 1 1 16-5.5Z" />
+              <path d="M8 11h.01M12 11h.01M16 11h.01" />
+            </svg>
+            <span id="unread-total-count" class="unread-total-count" hidden></span>
+          </button>
           <span id="profile-label">Signed in</span>
           <button id="sign-out" class="text-button sign-out" type="button">Sign out</button>
         </div>

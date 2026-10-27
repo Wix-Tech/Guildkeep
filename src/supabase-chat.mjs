@@ -110,6 +110,27 @@ export async function listChats() {
   return data ?? [];
 }
 
+export async function listMyChatSettings(userId) {
+  const { data, error } = await client()
+    .from('chat_member_settings')
+    .select('chat_id, muted')
+    .eq('user_id', userId);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function setChatMuted(chatId, userId, muted) {
+  const { data, error } = await client()
+    .from('chat_member_settings')
+    .update({ muted })
+    .eq('chat_id', chatId)
+    .eq('user_id', userId)
+    .select('muted')
+    .single();
+  if (error) throw error;
+  return data.muted;
+}
+
 const MESSAGE_PROJECTION = 'id, chat_id, sender_id, body, created_at, media_path, media_type, file_name, voice_note, edited_at, deleted_at, forwarded_from, reply_to_id, sender:profiles!messages_sender_id_fkey(display_name, username, avatar_path), reply_to:messages!messages_reply_to_id_fkey(id, body, deleted_at, sender:profiles!messages_sender_id_fkey(display_name, username))';
 
 export async function listMessages(chatId, { before = null, after = null, pageSize = 500 } = {}) {

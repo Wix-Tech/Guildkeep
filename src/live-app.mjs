@@ -4,9 +4,11 @@ import { renderSafeLinks } from './safe-links.mjs';
 import {
   activeTypingUsers,
   compareMessageOrder,
+  firstUnreadMessageId,
   isScrolledToBottom,
   readMessageCount,
   shouldSendTyping,
+  totalUnreadCount,
 } from './chat-live-state.mjs';
 import {
   createDirectChat,
@@ -28,6 +30,7 @@ import {
   joinChannelByInvite,
   leaveChat,
   listChats,
+  listMyChatSettings,
   listGroupStatuses,
   listChatReactions,
   listContactStatuses,
@@ -45,6 +48,7 @@ import {
   searchProfiles,
   searchMessages,
   setChatPinned,
+  setChatMuted,
   signedMediaUrl,
   signedMediaUrls,
   publicAvatarUrl,
@@ -74,10 +78,12 @@ import {
 } from './supabase-chat.mjs';
 
 const $ = (id) => document.getElementById(id);
+const baseDocumentTitle = document.title;
 const state = {
   session: null,
   profile: null,
   chats: [],
+  mutingChatIds: new Set(),
   activeChatId: null,
   messages: [],
   unsubscribeMessages: null,
@@ -324,6 +330,8 @@ function clearWorkspace() {
   state.initializingUserId = null;
   state.profile = null;
   state.chats = [];
+  state.mutingChatIds.clear();
+  renderUnreadTotal();
   state.activeChatId = null;
   state.activeChat = null;
   state.messages = [];
@@ -399,9 +407,14 @@ function renderChats() {
       const type = chat.chat_type ?? (chat.is_group ? 'group' : 'direct');
       const preview = chat.last_message?.body ?? 'Start a conversation';
       const unread = Number(chat.unread_count) || 0;
+      const unreadMarker = unread
+        ? chat.muted
+          ? `<span class="chat-unread-dot" role="img" aria-label="${unread} unread messages in muted chat"></span>`
+          : `<span class="unread-badge" aria-label="${unread} unread messages">${unread > 99 ? '99+' : unread}</span>`
+        : '';
       const peer = type === 'direct' ? chat.participants?.[0] : null;
       const row = peer ? `
-        <div class="row row-profile-layout ${state.activeChatId === chat.chat_id ? 'is-active' : ''}"
+        <div class="row row-profile-layout ${state.activeChatId === chat.chat_id ? 'is-active' : ''} ${unread && !chat.muted ? 'has-unread' : ''}"
           role="group" aria-label="Chat with ${esc(chat.chat_name)}">
           <button class="profile-preview-trigger profile-preview-avatar" type="button"
             data-profile-preview-id="${esc(peer.id)}" aria-label="View ${esc(peer.display_name)}'s profile">
@@ -418,9 +431,9 @@ function renderChats() {
               ${esc(preview)}
             </button>
           </span>
-          ${unread ? `<span class="unread-badge" aria-label="${unread} unread messages">${unread > 99 ? '99+' : unread}</span>` : ''}
+          ${unreadMarker}
         </div>` : `
-        <button class="row" type="button" data-chat-id="${esc(chat.chat_id)}"
+        <button class="row ${unread && !chat.muted ? 'has-unread' : ''}" type="button" data-chat-id="${esc(chat.chat_id)}"
           aria-pressed="${state.activeChatId === chat.chat_id}">
           ${chat.chat_type === 'group'
             ? chatAvatar(chat.chat_name, chat.chat_id, chat.chat_avatar_path)
@@ -432,7 +445,7 @@ function renderChats() {
             </span>
             <span class="row-sub">${esc(preview)}</span>
           </span>
-          ${unread ? `<span class="unread-badge" aria-label="${unread} unread messages">${unread > 99 ? '99+' : unread}</span>` : ''}
+          ${unreadMarker}
         </button>`;
       return `
         <div class="live-chat-row">
@@ -441,6 +454,15 @@ function renderChats() {
             data-pin-id="${esc(chat.chat_id)}" aria-label="${chat.pinned ? 'Unpin' : 'Pin'} ${esc(chat.chat_name)}"
             aria-pressed="${Boolean(chat.pinned)}" title="${chat.pinned ? 'Unpin chat' : 'Pin chat'}">
             ${chat.pinned ? '★' : '☆'}
+          </button>` : ''}
+          ${type !== 'channel' ? `<button class="chat-mute ${chat.muted ? 'is-muted' : ''}" type="button"
+            data-mute-id="${esc(chat.chat_id)}" aria-label="${chat.muted ? 'Unmute' : 'Mute'} ${esc(chat.chat_name)}"
+            aria-pressed="${Boolean(chat.muted)}" title="${chat.muted ? 'Unmute chat' : 'Mute chat'}"
+            ${state.mutingChatIds.has(chat.chat_id) ? 'disabled' : ''}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
+              ${chat.muted ? '<path d="m4 4 16 16" />' : ''}
+            </svg>
           </button>` : ''}
           <button class="chat-mark-unread" type="button" data-mark-unread-id="${esc(chat.chat_id)}"
             aria-label="Mark ${esc(chat.chat_name)} as unread" title="Mark as unread">●</button>
@@ -474,6 +496,19 @@ function renderChats() {
     return;
   }
   $('chat-list').innerHTML = `${chatMarkup}${peopleMarkup}${emptyChats}`;
+}
+
+function renderUnreadTotal() {
+  const button = $('unread-total-toggle');
+  const badge = $('unread-total-count');
+  if (!button || !badge) return;
+  const count = totalUnreadCount(state.chats);
+  badge.hidden = count === 0;
+  badge.textContent = count > 99 ? '99+' : String(count);
+  button.setAttribute('aria-label', count
+    ? `Chats, ${count} unread messages`
+    : 'Chats, no unread messages');
+  document.title = count ? `(${count}) ${baseDocumentTitle}` : baseDocumentTitle;
 }
 
 function updateNavigation(view) {
@@ -697,8 +732,16 @@ function renderMessages() {
     return;
   }
 
+  const firstUnreadId = firstUnreadMessageId(
+    state.messages,
+    state.session.user.id,
+    state.activeChat?.last_read_at,
+  );
   list.innerHTML = state.messages
     .map((message) => {
+      const unreadDivider = message.id === firstUnreadId
+        ? '<div class="new-messages-divider" role="separator" aria-label="New messages"><span>New messages</span></div>'
+        : '';
       const own = message.sender_id === state.session.user.id;
       const senderName = message.sender?.display_name ??
         (own ? state.profile.display_name : state.activeChat?.chat_name ?? 'Member');
@@ -732,10 +775,10 @@ function renderMessages() {
           </span>`;
         }).join('');
       if (message.deleted_at) {
-        return `<div class="message ${own ? 'outgoing' : ''} is-deleted" data-message-id="${esc(message.id)}"><em>Message deleted</em></div>`;
+        return `${unreadDivider}<div class="message ${own ? 'outgoing' : ''} is-deleted" data-message-id="${esc(message.id)}"><em>Message deleted</em></div>`;
       }
       return `
-        <div class="message ${own ? 'outgoing' : ''} ${sticker ? 'is-sticker' : ''}" data-message-id="${esc(message.id)}" tabindex="0">
+        ${unreadDivider}<div class="message ${own ? 'outgoing' : ''} ${sticker ? 'is-sticker' : ''}" data-message-id="${esc(message.id)}" tabindex="0">
           <div class="message-quick-reactions" aria-label="Quick reactions">
             ${['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji) => `<button type="button"
               data-quick-reaction="${esc(emoji)}" data-reaction-message="${esc(message.id)}"
@@ -1497,17 +1540,24 @@ async function openPersonChat(person, sourceButton, fromDialog = false) {
 async function refreshChats() {
   const userId = state.session?.user?.id;
   if (!userId) return;
-  const rows = await listChats();
+  const [rows, settings] = await Promise.all([listChats(), listMyChatSettings(userId)]);
   if (state.session?.user?.id !== userId) return;
+  const mutedChatIds = new Set(settings.filter((setting) => setting.muted).map((setting) => setting.chat_id));
   state.chats = rows.map((row) => ({
     ...row,
     chat_type: row.chat_type ?? (row.is_group ? 'group' : 'direct'),
     participants: Array.isArray(row.participants) ? row.participants : [],
+    muted: mutedChatIds.has(row.chat_id),
   }));
+  renderUnreadTotal();
   renderChats();
   if (state.activeChatId) {
     const updatedChat = state.chats.find((chat) => chat.chat_id === state.activeChatId);
-    if (updatedChat) state.activeChat = updatedChat;
+    if (updatedChat) {
+      const readCursorChanged = updatedChat.last_read_at !== state.activeChat?.last_read_at;
+      state.activeChat = updatedChat;
+      if (readCursorChanged && state.messages.length) renderMessages();
+    }
   }
 }
 
@@ -2686,6 +2736,7 @@ function wire() {
     const button = event.target.closest('[data-view]');
     if (button) updateNavigation(button.dataset.view);
   });
+  $('unread-total-toggle').addEventListener('click', () => updateNavigation('chats'));
 
   $('profile-picture-input').addEventListener('change', (event) => {
     const file = event.currentTarget.files?.[0];
@@ -2806,6 +2857,30 @@ function wire() {
         showToast(friendlyError(error));
       } finally {
         pin.disabled = false;
+      }
+      return;
+    }
+    const mute = event.target.closest('[data-mute-id]');
+    if (mute) {
+      const chatId = mute.dataset.muteId;
+      const chat = state.chats.find((item) => item.chat_id === chatId);
+      if (!chat || state.mutingChatIds.has(chatId)) return;
+      const previousMuted = Boolean(chat.muted);
+      const nextMuted = !previousMuted;
+      chat.muted = nextMuted;
+      state.mutingChatIds.add(chatId);
+      renderChats();
+      try {
+        chat.muted = await setChatMuted(chatId, state.session.user.id, nextMuted);
+        await refreshChats();
+      } catch (error) {
+        const currentChat = state.chats.find((item) => item.chat_id === chatId);
+        if (currentChat) currentChat.muted = previousMuted;
+        renderChats();
+        showToast(`Could not ${nextMuted ? 'mute' : 'unmute'} chat: ${friendlyError(error)}`);
+      } finally {
+        state.mutingChatIds.delete(chatId);
+        renderChats();
       }
       return;
     }

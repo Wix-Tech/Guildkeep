@@ -103,7 +103,9 @@ Messages can be pinned in direct chats; only group or channel owners and
 admins can pin or remove pins there. Pinned messages are shared with chat
 members, update live, and can be opened from the conversation banner.
 Chat-list actions can mark a conversation unread for the current member without
-changing another participant's read receipt. Unread totals count received
+changing another participant's read receipt. A divider marks the first
+received message after the read cursor. Per-chat mute replaces the numeric row
+badge with an unread dot; the top-bar total and document title count received
 messages, not messages sent by the current user.
 Opening a chat member's profile shows their about and last-seen details,
 common groups, and shared media, links, and files in a responsive side panel or
@@ -123,7 +125,9 @@ can access.
    `db/supabase/009_read_typing_presence.sql` and
    `db/supabase/010_message_search.sql`, and
    `db/supabase/011_pinned_messages.sql`, and
-   `db/supabase/012_mark_chat_unread.sql` in order in its SQL Editor. To roll
+   `db/supabase/012_mark_chat_unread.sql`, then apply
+   `db/supabase/014_chat_pin_limit.sql` and `db/supabase/015_unread_behavior.sql`
+   in order. To roll
    back message replies, run `db/supabase/008_message_replies.down.sql`; to
    roll back reaction scoping, run
    `db/supabase/007_chat_reaction_scoping.down.sql`; to roll back read receipts
@@ -132,7 +136,8 @@ can access.
    run `db/supabase/010_message_search.down.sql`; to roll back pinned messages,
    run `db/supabase/011_pinned_messages.down.sql`. The
    mark-unread function can be removed with
-   `db/supabase/012_mark_chat_unread.down.sql`. The
+   `db/supabase/012_mark_chat_unread.down.sql`. Roll back the per-chat mute
+   setting and unread UI with `db/supabase/015_unread_behavior.down.sql`. The
    migrations create the chat tables, secure profile search and direct-chat
    RPCs, profile trigger, row-level security policies, group roles/admin
    commands, message reactions, invite flows, channels, contact-only statuses,
@@ -162,12 +167,17 @@ can access.
 6. Use **New group** to create a group. Share its invite link from group details;
    admins can type `/help` in a group conversation to see available commands.
 7. Test media, status, and voice-note flows with files under 25 MB. Apply all
-   ten SQL migrations before testing channels, group/channel settings,
+   all Supabase migrations before testing channels, group/channel settings,
    profile photos, statuses, message media, and replies.
 8. In two accounts, open the same direct chat. Scroll the recipient to the
    bottom to send a read receipt; confirm the sender sees a grey sent tick turn
    orange with two ticks. Type in the composer to confirm the other member sees
    a temporary typing indicator, then verify online/last-seen details.
+9. Send messages from one account, then open the receiving account's chat list.
+   Confirm the top-bar and document-title totals update, the chat row shows its
+   unread count, and the divider appears before the first unread message. Mute
+   the chat to confirm the number becomes a dot; unmute it and scroll to the
+   bottom to clear the divider and unread count.
 
 Email confirmation behavior is controlled by the Supabase Auth project settings.
 The client never contains a service-role key. Direct chat creation and message

@@ -27,3 +27,16 @@ export function readMessageCount(messages, lastReadSortId, excludedUserId = null
   )).length;
   return readerCount;
 }
+
+export function totalUnreadCount(chats) {
+  return chats.reduce((total, chat) => total + (Number(chat.unread_count) || 0), 0);
+}
+
+export function firstUnreadMessageId(messages, userId, lastReadAt) {
+  const lastReadTime = Date.parse(lastReadAt);
+  if (!Number.isFinite(lastReadTime)) return null;
+  return messages.find((message) => (
+    message.sender_id !== userId
+    && Date.parse(message.created_at) > lastReadTime
+  ))?.id ?? null;
+}
