@@ -4,11 +4,11 @@ import { readdir, readFile } from 'node:fs/promises';
 
 const readSource = (path) => readFile(new URL(path, import.meta.url), 'utf8');
 
-test('composer picker provides emoji recents, original stickers, and Tenor GIF search', async () => {
-  const [app, styles, supabaseChat, stickers] = await Promise.all([
+test('composer picker provides emoji recents, original stickers, and GIPHY search', async () => {
+  const [app, styles, gifSearch, stickers] = await Promise.all([
     readSource('../src/live-app.mjs'),
     readSource('../src/live-styles.css'),
-    readSource('../src/supabase-chat.mjs'),
+    readSource('../src/giphy-gifs.mjs'),
     readdir(new URL('../src/stickers/', import.meta.url)),
   ]);
   assert.match(app, /document\.querySelector\(idOrSelector\)/);
@@ -45,15 +45,16 @@ test('composer picker provides emoji recents, original stickers, and Tenor GIF s
   assert.match(app, /class="message-sticker"[^>]+width="120" height="120"/);
   assert.match(app, /class="picker-media-draft"/);
   assert.match(app, /class="message .*?\$\{sticker \? 'is-sticker' : ''\}/);
-  assert.match(supabaseChat, /functions\.invoke\('tenor-search'/);
+  assert.match(gifSearch, /https:\/\/api\.giphy\.com\/v1\/gifs\/search/);
+  assert.match(app, /searchGiphyGifs\(query, import\.meta\.env\.VITE_GIPHY_API_KEY\)/);
   assert.equal(stickers.filter((name) => name.endsWith('.svg')).length, 8);
   for (const asset of stickerAssets) {
     assert.match(asset, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
     assert.doesNotMatch(asset, /<script\b|\b(?:href|src)="https?:/i);
   }
-  assert.match(app, /placeholder="Search Tenor"/);
-  assert.match(app, />Powered By Tenor</);
-  assert.match(app, /<figcaption><a href="https:\/\/tenor\.com"[^>]*>Via Tenor<\/a><\/figcaption>/);
+  assert.match(app, /placeholder="Search GIPHY"/);
+  assert.match(app, />Powered By GIPHY</);
+  assert.match(app, /giphyAttributionUrl\(match\[2\]\)/);
   assert.match(styles, /\.emoji-picker-grid/);
   assert.match(styles, /\.toast\s*\{[^}]*bottom:\s*calc\(84px/);
   assert.match(styles, /\.message\.is-sticker\s*\{[^}]*background:\s*transparent/);

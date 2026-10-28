@@ -18,10 +18,11 @@ import {
 } from './emoji-picker.mjs';
 import { renderSafeLinks } from './safe-links.mjs';
 import {
-  createTenorGifToken,
-  normalizeTenorResults,
-  safeTenorGifUrl,
-} from './tenor-gifs.mjs';
+  createGiphyGifToken,
+  giphyAttributionUrl,
+  safeGiphyGifUrl,
+  searchGiphyGifs,
+} from './giphy-gifs.mjs';
 import { buildVoiceWaveform, formatVoiceDuration, VOICE_WAVEFORM_BARS } from './voice-notes.mjs';
 import {
   activeTypingUsers,
@@ -92,7 +93,6 @@ import {
   signIn,
   signOut,
   signUp,
-  searchTenorGifs,
   subscribeToMessages,
   subscribeToMemberships,
   toggleMessageReaction,
@@ -164,7 +164,7 @@ const state = {
   recentEmojiStorageWarningShown: false,
   pickerMediaDraft: null,
   emojiSelection: null,
-  tenorSearch: {
+  gifSearch: {
     sequence: 0,
     timer: null,
     query: '',
@@ -251,7 +251,7 @@ function pickerMessageLabel(body) {
     if (segment.type === 'sticker' && STICKERS_BY_ID.has(segment.value)) {
       return `Sticker · ${STICKERS_BY_ID.get(segment.value).title}`;
     }
-    if (segment.type === 'gif' && safeTenorGifUrl(segment.value)) return 'GIF';
+    if (segment.type === 'gif' && safeGiphyGifUrl(segment.value)) return 'GIF';
     return segment.token;
   }).join('');
 }
@@ -270,10 +270,12 @@ function renderPickerContent(body, messageId) {
     if (match[1] === 'sticker' && STICKERS_BY_ID.has(match[2])) {
       const sticker = STICKERS_BY_ID.get(match[2]);
       html += `<img class="message-sticker" src="${esc(sticker.src)}" alt="${esc(sticker.alt)}" width="120" height="120" loading="lazy" />`;
-    } else if (match[1] === 'gif' && safeTenorGifUrl(match[2])) {
+    } else if (match[1] === 'gif' && safeGiphyGifUrl(match[2])) {
+      const attributionUrl = giphyAttributionUrl(match[2]);
+      const provider = attributionUrl === 'https://tenor.com' ? 'Tenor' : 'GIPHY';
       html += `<figure class="message-gif-figure">
-        <img class="message-gif" src="${esc(safeTenorGifUrl(match[2]))}" alt="Animated GIF" loading="lazy" />
-        <figcaption><a href="https://tenor.com" target="_blank" rel="noopener noreferrer nofollow">Via Tenor</a></figcaption>
+        <img class="message-gif" src="${esc(safeGiphyGifUrl(match[2]))}" alt="Animated GIF" loading="lazy" />
+        <figcaption><a href="${esc(attributionUrl)}" target="_blank" rel="noopener noreferrer nofollow">Via ${provider}</a></figcaption>
       </figure>`;
     } else {
       html += esc(match[0]);
@@ -331,7 +333,7 @@ function renderPickerMediaDraft() {
     return;
   }
   const sticker = media.type === 'sticker' ? STICKERS_BY_ID.get(media.id) : null;
-  const gifUrl = media.type === 'gif' ? safeTenorGifUrl(media.gifUrl) : null;
+  const gifUrl = media.type === 'gif' ? safeGiphyGifUrl(media.gifUrl) : null;
   if (!sticker && !gifUrl) {
     state.pickerMediaDraft = null;
     draft.hidden = true;
@@ -351,7 +353,7 @@ function messageBodyWithPickerMedia(body) {
   if (!media) return text;
   const token = media.type === 'sticker'
     ? createStickerToken(media.id)
-    : createTenorGifToken(media.gifUrl);
+    : createGiphyGifToken(media.gifUrl);
   return [text, token].filter(Boolean).join('\n');
 }
 
@@ -1477,10 +1479,10 @@ function bindVoicePlayers(list, resumePlayback = null) {
   else audio.addEventListener('loadedmetadata', () => { void resume(); }, { once: true });
 }
 
-function renderTenorGifResults() {
-  const container = $('tenor-gif-results');
+function renderGifResults() {
+  const container = $('giphy-gif-results');
   if (!container) return;
-  const { query, loading, error, results } = state.tenorSearch;
+  const { query, loading, error, results } = state.gifSearch;
   if (loading) {
     container.innerHTML = '<p class="emoji-picker-status" role="status">Searching GIFs…</p>';
     return;
@@ -1494,7 +1496,7 @@ function renderTenorGifResults() {
     return;
   }
   const safeResults = results.filter((gif) =>
-    safeTenorGifUrl(gif.previewUrl) && safeTenorGifUrl(gif.gifUrl));
+    safeGiphyGifUrl(gif.previewUrl) && safeGiphyGifUrl(gif.gifUrl));
   container.innerHTML = safeResults.length
     ? `<div class="emoji-picker-grid gif-picker-grid" role="group" aria-label="GIF search results">
         ${safeResults.map((gif) => `<button type="button" class="gif-picker-item"
@@ -1506,31 +1508,31 @@ function renderTenorGifResults() {
     : '<p class="emoji-picker-status" role="status">No GIFs found.</p>';
 }
 
-function searchTenorGifOptions(query) {
-  clearTimeout(state.tenorSearch.timer);
-  const sequence = ++state.tenorSearch.sequence;
-  state.tenorSearch.query = query;
-  state.tenorSearch.results = [];
-  state.tenorSearch.error = '';
+function searchGifOptions(query) {
+  clearTimeout(state.gifSearch.timer);
+  const sequence = ++state.gifSearch.sequence;
+  state.gifSearch.query = query;
+  state.gifSearch.results = [];
+  state.gifSearch.error = '';
   if (query.trim().length < 2) {
-    state.tenorSearch.loading = false;
-    renderTenorGifResults();
+    state.gifSearch.loading = false;
+    renderGifResults();
     return;
   }
-  state.tenorSearch.loading = true;
-  renderTenorGifResults();
-  state.tenorSearch.timer = setTimeout(async () => {
+  state.gifSearch.loading = true;
+  renderGifResults();
+  state.gifSearch.timer = setTimeout(async () => {
     try {
-      const results = await searchTenorGifs(query);
-      if (sequence !== state.tenorSearch.sequence) return;
-      state.tenorSearch.results = normalizeTenorResults({ results });
-      state.tenorSearch.loading = false;
+      const results = await searchGiphyGifs(query, import.meta.env.VITE_GIPHY_API_KEY);
+      if (sequence !== state.gifSearch.sequence) return;
+      state.gifSearch.results = results;
+      state.gifSearch.loading = false;
     } catch (error) {
-      if (sequence !== state.tenorSearch.sequence) return;
-      state.tenorSearch.error = `Could not search GIFs: ${friendlyError(error)}`;
-      state.tenorSearch.loading = false;
+      if (sequence !== state.gifSearch.sequence) return;
+      state.gifSearch.error = `Could not search GIFs: ${friendlyError(error)}`;
+      state.gifSearch.loading = false;
     }
-    renderTenorGifResults();
+    renderGifResults();
   }, 250);
 }
 
@@ -1558,13 +1560,13 @@ function renderEmojiPicker(kind = 'emoji') {
         title="${esc(sticker.title)}"><img src="${esc(sticker.src)}" alt="" loading="lazy" /></button>`).join('')}
     </div>`;
   const gifContent = `
-    <label class="gif-picker-search">Search Tenor GIFs
-      <input id="tenor-gif-search" type="search" maxlength="80" autocomplete="off"
-        value="${esc(state.tenorSearch.query)}" placeholder="Search Tenor" />
+    <label class="gif-picker-search">Search GIPHY GIFs
+      <input id="giphy-gif-search" type="search" maxlength="50" autocomplete="off"
+        value="${esc(state.gifSearch.query)}" placeholder="Search GIPHY" />
     </label>
-    <div id="tenor-gif-results" aria-live="polite"></div>
-    <p class="tenor-attribution"><a href="https://tenor.com" target="_blank"
-      rel="noopener noreferrer nofollow">Powered By Tenor</a></p>`;
+    <div id="giphy-gif-results" aria-live="polite"></div>
+    <p class="giphy-attribution"><a href="https://giphy.com" target="_blank"
+      rel="noopener noreferrer nofollow">Powered By GIPHY</a></p>`;
   const content = kind === 'emoji' ? emojiContent : kind === 'stickers' ? stickerContent : gifContent;
   picker.innerHTML = `
     <div class="emoji-picker-tabs" role="tablist" aria-label="Choose emoji, stickers, or GIFs">
@@ -1577,7 +1579,7 @@ function renderEmojiPicker(kind = 'emoji') {
     </div>
     <div id="emoji-picker-content">${content}</div>`;
   picker.hidden = false;
-  if (kind === 'gifs') renderTenorGifResults();
+  if (kind === 'gifs') renderGifResults();
 }
 
 function insertComposerEmoji(emoji) {
@@ -2326,9 +2328,9 @@ async function openChat(chatId, chatOverride = null) {
   state.activeChat = chat;
   state.replyingTo = null;
   state.pickerMediaDraft = null;
-  clearTimeout(state.tenorSearch.timer);
-  state.tenorSearch = {
-    sequence: state.tenorSearch.sequence + 1,
+  clearTimeout(state.gifSearch.timer);
+  state.gifSearch = {
+    sequence: state.gifSearch.sequence + 1,
     timer: null,
     query: '',
     results: [],
@@ -3427,8 +3429,8 @@ async function forwardSelectedMessage(targetChatId) {
 function wire() {
   let messagePressOrigin = null;
   $('conversation').addEventListener('input', (event) => {
-    if (event.target.id === 'tenor-gif-search') {
-      searchTenorGifOptions(event.target.value);
+    if (event.target.id === 'giphy-gif-search') {
+      searchGifOptions(event.target.value);
       return;
     }
     if (!event.target.matches('#message-form textarea')) return;
@@ -4467,7 +4469,7 @@ function wire() {
       renderEmojiPicker(pickerTab.dataset.emojiPickerTab);
       const picker = $('emoji-picker');
       (pickerTab.dataset.emojiPickerTab === 'gifs'
-        ? picker.querySelector('#tenor-gif-search')
+        ? picker.querySelector('#giphy-gif-search')
         : picker.querySelector('[data-insert-emoji], [data-insert-sticker]'))?.focus();
       return;
     }
@@ -4499,7 +4501,7 @@ function wire() {
     }
     const gifChoice = event.target.closest('[data-insert-gif]');
     if (gifChoice) {
-      const gifUrl = safeTenorGifUrl(gifChoice.dataset.insertGif);
+      const gifUrl = safeGiphyGifUrl(gifChoice.dataset.insertGif);
       if (!gifUrl) {
         showToast('That GIF could not be selected. Search again to choose a valid result.');
         return;

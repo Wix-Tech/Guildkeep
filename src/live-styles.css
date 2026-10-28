@@ -642,8 +642,8 @@
 .gif-picker-search { display: grid; gap: 5px; padding: 9px 0; color: #b7a89c; font-size: 10px; }
 .gif-picker-search input { min-width: 0; height: 34px; padding: 0 9px; color: var(--text); background: #191512; border: 1px solid #49301f; border-radius: 8px; font: inherit; }
 .gif-picker-search input:focus-visible { border-color: #e8873a; outline: 2px solid rgba(232, 135, 58, 0.3); }
-.tenor-attribution { margin: 8px 0 0; color: #8e8075; font-size: 9px; text-align: right; }
-.tenor-attribution a { color: #eaa170; text-decoration: underline; }
+.giphy-attribution { margin: 8px 0 0; color: #8e8075; font-size: 9px; text-align: right; }
+.giphy-attribution a { color: #eaa170; text-decoration: underline; }
 .emoji-picker-status { margin: 8px 2px 2px; color: #a99a8f; font-size: 10px; }
 .emoji-picker-status.is-error { color: #ff9a78; }
 .gif-picker-grid { grid-template-columns: repeat(3, minmax(68px, 1fr)); }

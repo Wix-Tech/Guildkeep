@@ -138,22 +138,6 @@ export async function listMyMentions() {
   return data ?? [];
 }
 
-export async function searchTenorGifs(query) {
-  const { data, error } = await client().functions.invoke('tenor-search', {
-    body: { query },
-  });
-  if (error) {
-    const response = error.context;
-    if (response instanceof Response) {
-      const payload = await response.clone().json().catch(() => null);
-      if (typeof payload?.error === 'string') throw new Error(payload.error);
-    }
-    throw error;
-  }
-  if (!Array.isArray(data?.results)) throw new Error('GIF search returned an invalid response.');
-  return data.results;
-}
-
 const MESSAGE_PROJECTION = 'id, chat_id, sender_id, body, created_at, expires_at, media_path, media_type, file_name, voice_note, voice_duration_ms, voice_waveform, edited_at, deleted_at, forwarded_from, reply_to_id, sender:profiles!messages_sender_id_fkey(display_name, username, avatar_path)';
 
 async function attachReplyTargets(messages, chatId) {

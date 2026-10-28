@@ -30,7 +30,7 @@ product/
 ├─ src/live-styles.css     hosted chat app styles
 ├─ brand/                  Guildkeep logos, icons, and brand sheet
 ├─ db/supabase/            hosted chat schema, RLS, and RPC migrations
-├─ supabase/functions/     authenticated Edge Functions, including Tenor GIF search
+├─ supabase/functions/     authenticated Edge Functions for media cleanup
 ├─ vercel.json             Vercel static build settings
 ├─ src/admin-app.mjs       the console UI
 ├─ src/admin-styles.css    console styles
@@ -90,14 +90,13 @@ The composer has emoji, sticker, and GIF tabs. Emoji selections are inserted
 at the saved composer caret; sticker and GIF selections remain as a visible
 draft until sent, and the picker stays open so users can make further
 selections. Emoji recents are stored in the browser; eight original, local SVG
-stickers render at 120 px without a message bubble. GIF search runs through
-the authenticated `tenor-search` Supabase Edge Function, keeps the Tenor key
-server-side, and loads selected GIFs from Tenor's CDN. Search terms are sent to
-Tenor; GIF search requires a `TENOR_API_KEY`
-Supabase Function secret and displays an error if the function or key is not
-configured. The picker displays Tenor's "Search Tenor" and "Powered By Tenor"
-attribution, and each shared GIF includes "Via Tenor". Never put this key in a
-`VITE_` variable or commit it.
+stickers render at 120 px without a message bubble. GIF search uses GIPHY's
+client-side Search API, as required by GIPHY. Set `VITE_GIPHY_API_KEY` in the
+Vercel production environment and local `.env.local`; this app key is necessarily
+browser-visible and must never be treated as a server secret. Restrict it to
+GIPHY API in the GIPHY developer dashboard. The picker displays GIPHY
+attribution and shared GIFs retain provider attribution; previously shared
+Tenor GIFs remain supported.
 Message URLs render as local domain cards without fetching remote metadata or
 images. Only public-domain HTTP(S) links become clickable; unsafe/local targets
 remain plain text.
@@ -208,16 +207,18 @@ can access.
    same two `VITE_` variables to the Vercel project's environment settings.
    Configure the Supabase Auth site URL and redirect URLs to include the local
    development origin and the deployed Vercel domain.
-   For Tenor GIF search, create a Tenor API key, add it as the `TENOR_API_KEY`
-   secret under Supabase **Edge Functions → Secrets**, then deploy the function
-   with `supabase functions deploy tenor-search --project-ref <project-ref>`.
+   For GIF search, create a GIPHY app at https://developers.giphy.com/apps and
+   add its API key as `VITE_GIPHY_API_KEY` in the Vercel project's Production
+   environment. Add the same browser-visible variable to `.env.local` for local
+   development, then redeploy the Vercel app so Vite includes the key in the
+   bundle. GIPHY requires the Search API call to originate in the client.
    Deploy `cleanup-expired-media` with
    `supabase functions deploy cleanup-expired-media --project-ref <project-ref>`
    so its server-side worker can remove expired attachments. It uses Supabase's
    built-in Edge Function service-role secret; never add that key to the client
    or source control.
-   Do not add the Tenor key to `.env.local`, Vercel `VITE_` settings, or source
-   control. GIF search is authenticated and sends search terms to Tenor.
+   Do not commit the GIPHY API key to source control. GIF search sends search
+   terms directly from the browser to GIPHY.
 5. Create two accounts using distinct usernames. Search for the other account
    in the chat list or choose **New chat**; select **Message**, then send a
    message in the conversation composer.
