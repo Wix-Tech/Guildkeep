@@ -20,7 +20,8 @@ test('composer picker provides emoji recents, original stickers, and GIPHY searc
     .map((name) => readFile(new URL(`../src/stickers/${name}`, import.meta.url), 'utf8')));
 
   assert.match(app, /id="emoji-picker-toggle"/);
-  assert.match(app, /<span class="composer-emoji-icon" aria-hidden="true">😊<\/span><span>Emoji<\/span>/);
+  assert.match(app, /<span class="composer-emoji-icon" aria-hidden="true">😊<\/span><\/button>/);
+  assert.doesNotMatch(app, /id="emoji-picker-toggle"[^>]*>[^<]*Emoji/);
   assert.match(app, /function renderEmojiPicker/);
   assert.match(app, /role="tab" data-emoji-picker-tab="stickers"/);
   assert.match(app, /role="tab" data-emoji-picker-tab="gifs"/);

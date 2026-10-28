@@ -60,28 +60,12 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>
             <span>Search messages</span>
           </button>
-          <button id="mention-notifications-toggle" class="icon-button mention-notifications-toggle" type="button"
-            aria-label="Notifications, no unread mentions" aria-expanded="false" aria-controls="mention-notifications">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" />
-            </svg>
-            <span id="mention-notification-count" class="mention-notification-count" hidden></span>
-          </button>
-          <button id="unread-total-toggle" class="icon-button unread-total-toggle" type="button"
-            aria-label="Chats, no unread messages" title="Open chats">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H6l-3 2 1-4a7.5 7.5 0 1 1 16-5.5Z" />
-              <path d="M8 11h.01M12 11h.01M16 11h.01" />
-            </svg>
-            <span id="unread-total-count" class="unread-total-count" hidden></span>
-          </button>
           <span id="profile-label">Signed in</span>
-          <button id="sign-out" class="text-button sign-out" type="button">Sign out</button>
         </div>
       </header>
-      <aside id="mention-notifications" class="mention-notifications" hidden aria-label="Unread mentions">
+      <aside id="mention-notifications" class="mention-notifications" hidden aria-label="Notifications">
         <div class="mention-notifications-header">
-          <h2>Mentions</h2>
+          <h2>Notifications</h2>
           <button type="button" id="mention-notifications-close" aria-label="Close notifications">×</button>
         </div>
         <div id="mention-notification-list" class="mention-notification-list" role="list"></div>
@@ -89,10 +73,16 @@
 
       <div id="app-workspace" class="app-workspace" data-view="chats">
         <nav id="main-nav" class="main-nav" aria-label="Main navigation">
-          <button type="button" class="nav-item is-active" data-view="chats" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H6l-3 2 1-4a7.5 7.5 0 1 1 16-5.5Z" /><path d="M8 11h.01M12 11h.01M16 11h.01" /></svg><small>Chats</small></button>
-          <button type="button" class="nav-item" data-view="groups"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3" /><path d="M3 20v-1a6 6 0 0 1 12 0v1M16 5.2a3 3 0 0 1 0 5.6M18 14a5 5 0 0 1 3 4.6V20" /></svg><small>Groups</small></button>
-          <button type="button" class="nav-item" data-view="channels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 18-5-5 17-4-7-7-5Z" /><path d="m12 16 4-6" /></svg><small>Channels</small></button>
-          <button type="button" class="nav-item" data-view="status"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><path d="M12 7v.01" /></svg><small>Status</small></button>
+          <button type="button" class="nav-item is-active" data-view="chats" aria-label="Chats" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H6l-3 2 1-4a7.5 7.5 0 1 1 16-5.5Z" /><path d="M8 11h.01M12 11h.01M16 11h.01" /></svg><small>Chats</small><span class="nav-item-badge" id="nav-unread-chats" hidden></span></button>
+          <button type="button" class="nav-item" data-view="groups" aria-label="Groups"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3" /><path d="M3 20v-1a6 6 0 0 1 12 0v1M16 5.2a3 3 0 0 1 0 5.6M18 14a5 5 0 0 1 3 4.6V20" /></svg><small>Groups</small><span class="nav-item-badge" id="nav-unread-groups" hidden></span></button>
+          <button type="button" class="nav-item" data-view="channels" aria-label="Channels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 18-5-5 17-4-7-7-5Z" /><path d="m12 16 4-6" /></svg><small>Channels</small><span class="nav-item-badge" id="nav-unread-channels" hidden></span></button>
+          <button type="button" class="nav-item" data-view="status" aria-label="Status"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><path d="M12 7v.01" /></svg><small>Status</small><span class="nav-item-badge" id="nav-status-reactions" hidden></span></button>
+          <button type="button" class="nav-item mention-notifications-toggle" id="mention-notifications-toggle"
+            aria-label="Notifications, no unread notifications" aria-expanded="false" aria-controls="mention-notifications">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" />
+            </svg><small>Alerts</small><span id="mention-notification-count" class="nav-item-badge" hidden></span>
+          </button>
           <button type="button" class="nav-item" data-view="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.7a8 8 0 0 1-1.8 1l-.3 1.8h-2.8l-.3-1.8a8 8 0 0 1-1.8-1l-1.7.7-1.4-2.4 1.4-1.1a7 7 0 0 1 0-2l-1.4-1.1 1.4-2.4 1.7.7a8 8 0 0 1 1.8-1l.3-1.8h2.8l.3 1.8a8 8 0 0 1 1.8 1l1.7-.7 1.4 2.4-1.4 1.1a7 7 0 0 1 0 2Z" /></svg><small>Settings</small></button>
         </nav>
         <main class="chat-layout">

@@ -35,8 +35,8 @@ test('unread rendering includes a divider, muted-chat indicator, and total badge
 
   assert.match(app, /firstUnreadMessageId\(/);
   assert.match(app, /new-messages-divider/);
-  assert.match(app, /renderUnreadTotal\(\)/);
-  assert.match(app, /document\.title = count/);
+  assert.match(app, /renderNavigationBadges\(\)/);
+  assert.match(app, /document\.title = total/);
   assert.match(app, /data-mute-id/);
   assert.match(app, /chat-unread-dot/);
   assert.match(app, /await setChatMuted\(/);

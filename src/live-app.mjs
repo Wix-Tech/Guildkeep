@@ -31,7 +31,6 @@ import {
   isScrolledToBottom,
   readMessageCount,
   shouldSendTyping,
-  totalUnreadCount,
 } from './chat-live-state.mjs';
 import {
   createDirectChat,
@@ -48,6 +47,7 @@ import {
   getProfile,
   getProfilePreview,
   getMyMentionNotificationsEnabled,
+  getMyNavigationUnreadCounts,
   getMessage,
   getChatDisappearingTimer,
   getSession,
@@ -60,6 +60,8 @@ import {
   listGroupStatuses,
   listChatReactions,
   listContactStatuses,
+  listMyStatusReactionNotifications,
+  listStatusReactions,
   listMessages,
   listMessagesAround,
   listMyChannels,
@@ -105,6 +107,9 @@ import {
   updateChatSettings,
   updateMyMentionNotificationsEnabled,
   updateStatusVisibility,
+  markMyStatusReactionNotificationsRead,
+  subscribeToStatusReactions,
+  toggleStatusReaction,
 } from './supabase-chat.mjs';
 
 const $ = (idOrSelector) => (
@@ -144,6 +149,10 @@ const state = {
   channels: [],
   discoveredChannels: [],
   statuses: [],
+  statusReactions: [],
+  statusReactionNotifications: [],
+  navigationUnreadCounts: { chats: 0, groups: 0, channels: 0 },
+  statusLoadPromise: null,
   selectedMessageId: null,
   replyingTo: null,
   hoveredMessageId: null,
@@ -222,6 +231,7 @@ const esc = (value) =>
   );
 
 const EMOJI_OPTIONS = ['😀', '😂', '🥰', '😍', '😊', '😎', '😭', '😮', '🤔', '🙏', '👏', '👍', '👎', '❤️', '🧡', '💛', '💚', '💙', '💜', '✨', '🔥', '🎉', '💯', '✅', '🤝', '👋', '🌸', '☀️', '🍕', '☕', '🐈', '🎵'];
+const STATUS_REACTION_OPTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const LEGACY_STICKER_EMOJIS = new Set(['🥹', '😂', '🥰', '😎', '🤔', '🙌', '❤️', '🔥', '🎉', '🐈', '🌸', '💯']);
 const STICKER_OPTIONS = [
   { id: 'hello', title: 'Hello', alt: 'Hello speech bubble', src: helloStickerUrl },
@@ -544,9 +554,14 @@ function clearWorkspace() {
   state.messageExpiryTimer = null;
   state.unsubscribeMentions?.();
   state.unsubscribeMentions = null;
+  state.unsubscribeStatusReactions?.();
+  state.unsubscribeStatusReactions = null;
   state.mentions = [];
   state.mentionIds = new Set();
   state.mentionsLoaded = false;
+  state.statusReactions = [];
+  state.statusReactionNotifications = [];
+  state.navigationUnreadCounts = { chats: 0, groups: 0, channels: 0 };
   state.mentionDraft = null;
   setMentionNotificationsOpen(false);
   renderMentionNotifications();
@@ -558,7 +573,7 @@ function clearWorkspace() {
   state.profile = null;
   state.chats = [];
   state.mutingChatIds.clear();
-  renderUnreadTotal();
+  renderNavigationBadges();
   state.activeChatId = null;
   state.activeChat = null;
   state.messages = [];
@@ -725,17 +740,25 @@ function renderChats() {
   $('chat-list').innerHTML = `${chatMarkup}${peopleMarkup}${emptyChats}`;
 }
 
-function renderUnreadTotal() {
-  const button = $('unread-total-toggle');
-  const badge = $('unread-total-count');
-  if (!button || !badge) return;
-  const count = totalUnreadCount(state.chats);
-  badge.hidden = count === 0;
-  badge.textContent = count > 99 ? '99+' : String(count);
-  button.setAttribute('aria-label', count
-    ? `Chats, ${count} unread messages`
-    : 'Chats, no unread messages');
-  document.title = count ? `(${count}) ${baseDocumentTitle}` : baseDocumentTitle;
+function renderNavigationBadges() {
+  const counts = {
+    chats: state.navigationUnreadCounts.chats,
+    groups: state.navigationUnreadCounts.groups,
+    channels: state.navigationUnreadCounts.channels,
+    status: state.statusReactionNotifications.length,
+  };
+  for (const [view, count] of Object.entries(counts)) {
+    const badge = $(`nav-unread-${view === 'status' ? 'status-reactions' : view}`);
+    const button = document.querySelector(`.nav-item[data-view="${view}"]`);
+    if (!badge || !button) continue;
+    badge.hidden = count === 0;
+    badge.textContent = count > 99 ? '99+' : String(count);
+    button.setAttribute('aria-label', count
+      ? `${view === 'status' ? 'Status' : view[0].toUpperCase() + view.slice(1)}, ${count} ${view === 'status' ? 'unread reactions' : 'unread messages'}`
+      : view === 'status' ? 'Status' : view[0].toUpperCase() + view.slice(1));
+  }
+  const total = Object.values(state.navigationUnreadCounts).reduce((sum, count) => sum + count, 0);
+  document.title = total ? `(${total}) ${baseDocumentTitle}` : baseDocumentTitle;
 }
 
 function updateNavigation(view) {
@@ -768,7 +791,7 @@ function updateNavigation(view) {
   }
   if (view === 'status') {
     $('conversation').innerHTML = '<div id="status-feed" class="status-feed"><p class="loading">Loading statuses…</p></div>';
-    void loadStatuses();
+    state.statusLoadPromise = loadStatuses();
     renderChats();
     return;
   }
@@ -861,6 +884,7 @@ async function loadStatuses() {
       media_url: status.media_path ? await signedMediaUrl('chat-media', status.media_path) : null,
     })));
     if (state.currentView !== 'status') return;
+    await refreshStatusReactionData();
     renderStatusList();
     renderStatusFeed();
   } catch (error) {
@@ -873,8 +897,24 @@ function renderStatusFeed(authorId = null) {
   if (!feed) return;
   const statuses = state.statuses.filter((status) => !authorId || status.author_id === authorId);
   feed.innerHTML = statuses.length
-    ? statuses.map((status) => `
-      <article class="status-card">
+    ? statuses.map((status) => {
+      const reactions = state.statusReactions.filter((reaction) => reaction.status_id === status.id);
+      const ownStatus = status.author_id === state.session.user.id;
+      const reactionMarkup = STATUS_REACTION_OPTIONS.map((emoji) => {
+        const matching = reactions.filter((reaction) => reaction.reaction === emoji);
+        const reacted = matching.some((reaction) => reaction.user_id === state.session.user.id);
+        const names = matching.map((reaction) => reaction.display_name).filter(Boolean);
+        const label = `${emoji}, ${matching.length} reaction${matching.length === 1 ? '' : 's'}${names.length ? ` from ${names.join(', ')}` : ''}`;
+        return ownStatus
+          ? matching.length ? `<span class="status-reaction-chip" aria-label="${esc(label)}">${emoji} ${matching.length}</span>` : ''
+          : `<button type="button" class="status-reaction-chip ${reacted ? 'is-selected' : ''}"
+              data-status-reaction="${esc(status.id)}" data-status-reaction-emoji="${esc(emoji)}"
+              aria-label="React ${emoji} to ${esc(status.author_name)}'s status" aria-pressed="${reacted}">
+              ${emoji}${matching.length ? `<span>${matching.length}</span>` : ''}
+            </button>`;
+      }).join('');
+      return `
+      <article class="status-card" data-status-id="${esc(status.id)}">
         <header>${avatar(status.author_name, status.author_id, status.avatar_path)}
           <span><strong>${esc(status.author_name)}</strong><small>@${esc(status.username)} · ${esc(formatMessageTime(status.created_at))}</small></span>
         </header>
@@ -882,8 +922,10 @@ function renderStatusFeed(authorId = null) {
         ${status.media_url ? status.media_type?.startsWith('video/')
           ? `<video controls preload="metadata" src="${esc(status.media_url)}"></video>`
           : `<img src="${esc(status.media_url)}" alt="Status from ${esc(status.author_name)}" loading="lazy" />` : ''}
+        <div class="status-reactions" aria-label="${ownStatus ? 'Reactions to your status' : 'React to this status'}">${reactionMarkup}</div>
         ${status.author_id === state.session.user.id ? `<button class="danger-button status-delete" type="button" data-delete-status="${esc(status.id)}">Delete my status</button>` : ''}
-      </article>`).join('')
+      </article>`;
+    }).join('')
     : '<div class="welcome"><h2>No active status updates</h2><p>Updates from your direct-chat contacts appear here for 24 hours.</p></div>';
 }
 
@@ -901,6 +943,7 @@ function renderSettingsPage() {
       <div class="settings-section">
         <h3>Account</h3>
         <div class="settings-row"><span><strong>Invite friends</strong><small>Share your Guildkeep username.</small></span><button id="settings-invite" class="secondary-button" type="button">Share</button></div>
+        <div class="settings-row"><span><strong>Sign out</strong><small>Sign out of Guildkeep on this device.</small></span><button id="settings-sign-out" class="danger-button" type="button">Sign out</button></div>
         <div class="settings-row"><span><strong>Status privacy</strong><small>Choose who can view your status updates. Updates expire after 24 hours.</small></span>
           <select id="settings-status-visibility" aria-label="Status visibility">
             <option value="contacts" ${statusVisibility === 'contacts' ? 'selected' : ''}>My contacts</option>
@@ -919,6 +962,17 @@ function renderSettingsPage() {
     </section>`;
   $('settings-invite').addEventListener('click', () => {
     void shareLink('Join me on Guildkeep', `Chat with me as @${state.profile.username}.`, currentInviteUrl('username', state.profile.username));
+  });
+  $('settings-sign-out').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await signOut();
+    } catch (error) {
+      showToast(friendlyError(error));
+    } finally {
+      button.disabled = false;
+    }
   });
   $('settings-edit-profile').addEventListener('click', openProfileEditor);
   $('settings-status-visibility').addEventListener('change', async (event) => {
@@ -2139,7 +2193,7 @@ function renderConversation() {
           <div id="chat-media-drop-hint" class="chat-media-drop-hint" hidden>Drop files to attach</div>
           <div id="chat-media-queue" class="chat-media-queue" hidden aria-label="Files ready to send"></div>
           <div id="picker-media-draft" class="picker-media-draft" hidden></div>
-          <button class="composer-tool" type="button" id="emoji-picker-toggle" aria-label="Open emoji, sticker, and GIF picker" title="Emoji, stickers, and GIFs" aria-expanded="false"><span class="composer-emoji-icon" aria-hidden="true">😊</span><span>Emoji</span></button>
+          <button class="composer-tool" type="button" id="emoji-picker-toggle" aria-label="Open emoji, sticker, and GIF picker" title="Emoji, stickers, and GIFs" aria-expanded="false"><span class="composer-emoji-icon" aria-hidden="true">😊</span></button>
           <div id="emoji-picker" class="emoji-picker" hidden role="dialog" aria-label="Emoji and stickers"></div>
           <button class="composer-tool" type="button" id="attach-media" aria-label="Attach media" title="Attach media">＋</button>
           <button class="composer-tool voice-note-control" type="button" id="voice-note"
@@ -2257,7 +2311,11 @@ async function openPersonChat(person, sourceButton, fromDialog = false) {
 async function refreshChats() {
   const userId = state.session?.user?.id;
   if (!userId) return;
-  const [rows, settings] = await Promise.all([listChats(), listMyChatSettings(userId)]);
+  const [rows, settings, unreadCounts] = await Promise.all([
+    listChats(),
+    listMyChatSettings(userId),
+    getMyNavigationUnreadCounts(),
+  ]);
   if (state.session?.user?.id !== userId) return;
   const mutedChatIds = new Set(settings.filter((setting) => setting.muted).map((setting) => setting.chat_id));
   state.chats = rows.map((row) => ({
@@ -2266,7 +2324,12 @@ async function refreshChats() {
     participants: Array.isArray(row.participants) ? row.participants : [],
     muted: mutedChatIds.has(row.chat_id),
   }));
-  renderUnreadTotal();
+  state.navigationUnreadCounts = {
+    chats: Number(unreadCounts.direct_unread) || 0,
+    groups: Number(unreadCounts.group_unread) || 0,
+    channels: Number(unreadCounts.channel_unread) || 0,
+  };
+  renderNavigationBadges();
   renderChats();
   if (state.activeChatId) {
     const updatedChat = state.chats.find((chat) => chat.chat_id === state.activeChatId);
@@ -2284,23 +2347,31 @@ function renderMentionNotifications() {
   const list = $('mention-notification-list');
   if (!button || !badge || !list) return;
   const enabled = state.profile?.mention_notifications_enabled !== false;
-  const count = enabled ? state.mentions.length : 0;
+  const mentionCount = enabled ? state.mentions.length : 0;
+  const statusReactionCount = state.statusReactionNotifications.length;
+  const count = mentionCount + statusReactionCount;
   badge.hidden = count === 0;
-  badge.textContent = count > 50 ? '50+' : String(count);
-  button.setAttribute('aria-label', !enabled
-    ? 'Notifications, mention alerts are off'
-    : count ? `Notifications, ${count} unread mentions` : 'Notifications, no unread mentions');
+  badge.textContent = count > 99 ? '99+' : String(count);
+  button.setAttribute('aria-label', count
+    ? `Notifications, ${mentionCount} unread mentions and ${statusReactionCount} unread status reactions`
+    : !enabled ? 'Notifications, mention alerts are off' : 'Notifications, no unread items');
   const mentions = state.mentions.map((mention) => `<button type="button" class="mention-notification"
         data-mention-chat="${esc(mention.chat_id)}" data-mention-message="${esc(mention.message_id)}">
       <span class="mention-notification-top"><strong>${esc(mention.sender_name)}</strong><span>mentioned you in ${esc(mention.chat_name)}</span></span>
       <span class="mention-notification-body">${esc(mention.body)}</span>
       <time datetime="${esc(mention.created_at)}">${esc(new Date(mention.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }))}</time>
     </button>`).join('');
-  list.innerHTML = state.mentions.length
-    ? `${enabled ? '' : `<p class="mention-notifications-empty">Mention alerts are off. ${state.mentions.length} unread mention${state.mentions.length === 1 ? ' is' : 's are'} still saved.</p>`}${mentions}`
-    : enabled
-      ? '<p class="mention-notifications-empty">No unread mentions.</p>'
-      : '<p class="mention-notifications-empty">Mention alerts are off. New mentions will still be saved here.</p>';
+  const statusReactions = state.statusReactionNotifications.map((notification) => `
+    <button type="button" class="mention-notification status-reaction-notification"
+      data-status-notification="${esc(notification.status_id)}">
+      <span class="mention-notification-top"><strong>${esc(notification.reactor_name)}</strong><span>reacted ${esc(notification.reaction)} to your status</span></span>
+      <span class="mention-notification-body">${esc(notification.status_body || 'Media status')}</span>
+      <time datetime="${esc(notification.created_at)}">${esc(new Date(notification.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }))}</time>
+    </button>`).join('');
+  list.innerHTML = `${enabled || !state.mentions.length ? '' : `<p class="mention-notifications-empty">Mention alerts are off. ${state.mentions.length} unread mention${state.mentions.length === 1 ? ' is' : 's are'} still saved.</p>`}${mentions}${statusReactions}${!state.mentions.length && !state.statusReactionNotifications.length
+    ? enabled ? '<p class="mention-notifications-empty">No unread notifications.</p>'
+      : '<p class="mention-notifications-empty">Mention alerts are off. New mentions will still be saved here.</p>'
+    : ''}`;
 }
 
 async function refreshMentions(announce = false) {
@@ -2317,6 +2388,31 @@ async function refreshMentions(announce = false) {
   }
   state.mentionsLoaded = true;
   renderMentionNotifications();
+}
+
+async function refreshStatusReactionData() {
+  const userId = state.session?.user?.id;
+  if (!userId) return;
+  const statusIds = state.statuses.map((status) => status.id);
+  const [reactions, notifications] = await Promise.all([
+    statusIds.length ? listStatusReactions(statusIds) : Promise.resolve([]),
+    listMyStatusReactionNotifications(),
+  ]);
+  if (state.session?.user?.id !== userId) return;
+  state.statusReactions = reactions;
+  state.statusReactionNotifications = notifications;
+  renderNavigationBadges();
+  renderMentionNotifications();
+  if (state.currentView === 'status') renderStatusFeed();
+}
+
+async function acknowledgeStatusReactionNotifications() {
+  try {
+    await markMyStatusReactionNotificationsRead();
+    await refreshStatusReactionData();
+  } catch (error) {
+    showToast(`Could not mark status reactions as read: ${friendlyError(error)}`);
+  }
 }
 
 async function openChat(chatId, chatOverride = null) {
@@ -2701,6 +2797,23 @@ async function initialiseWorkspace(session) {
       await refreshMentions();
     } catch (error) {
       showToast(`Could not load mention notifications: ${friendlyError(error)}`);
+    }
+    if (state.session?.user?.id !== userId) return;
+    state.unsubscribeStatusReactions?.();
+    state.unsubscribeStatusReactions = subscribeToStatusReactions(() => {
+      void refreshStatusReactionData().catch((error) => {
+        showToast(`Could not refresh status reaction notifications: ${friendlyError(error)}`);
+      });
+    }, (status) => {
+      if (state.session?.user?.id === userId
+        && ['CHANNEL_ERROR', 'TIMED_OUT'].includes(status)) {
+        showToast('Status reaction notifications are reconnecting.');
+      }
+    });
+    try {
+      await refreshStatusReactionData();
+    } catch (error) {
+      showToast(`Could not load status reaction notifications: ${friendlyError(error)}`);
     }
     if (state.session?.user?.id !== userId) return;
     state.unsubscribeMemberships = subscribeToMemberships(session.user.id, () => {
@@ -3536,14 +3649,6 @@ function wire() {
     }
   });
 
-  $('sign-out').addEventListener('click', async () => {
-    try {
-      await signOut();
-    } catch (error) {
-      showToast(friendlyError(error));
-    }
-  });
-
   $('message-search-close').addEventListener('click', () => closeMessageSearch());
   $('message-search-overlay').addEventListener('click', (event) => {
     if (event.target === event.currentTarget) closeMessageSearch();
@@ -3696,6 +3801,18 @@ function wire() {
       setMentionNotificationsOpen(notificationToggle.getAttribute('aria-expanded') !== 'true');
       return;
     }
+    const statusNotification = event.target.closest('[data-status-notification]');
+    if (statusNotification) {
+      const statusId = statusNotification.dataset.statusNotification;
+      setMentionNotificationsOpen(false);
+      updateNavigation('status');
+      await state.statusLoadPromise;
+      const statusCard = [...document.querySelectorAll('.status-card')]
+        .find((card) => card.dataset.statusId === statusId);
+      statusCard?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      await acknowledgeStatusReactionNotifications();
+      return;
+    }
     const mentionNotification = event.target.closest('[data-mention-chat][data-mention-message]');
     if (mentionNotification) {
       const { mentionChat: chatId, mentionMessage: messageId } = mentionNotification.dataset;
@@ -3804,9 +3921,12 @@ function wire() {
 
   $('main-nav').addEventListener('click', (event) => {
     const button = event.target.closest('[data-view]');
-    if (button) updateNavigation(button.dataset.view);
+    if (!button) return;
+    updateNavigation(button.dataset.view);
+    if (button.dataset.view === 'status') {
+      void Promise.resolve(state.statusLoadPromise).then(acknowledgeStatusReactionNotifications);
+    }
   });
-  $('unread-total-toggle').addEventListener('click', () => updateNavigation('chats'));
 
   $('profile-picture-input').addEventListener('change', (event) => {
     const file = event.currentTarget.files?.[0];
@@ -4446,6 +4566,22 @@ function wire() {
   });
 
   $('conversation').addEventListener('click', async (event) => {
+    const statusReaction = event.target.closest('[data-status-reaction]');
+    if (statusReaction) {
+      statusReaction.disabled = true;
+      try {
+        await toggleStatusReaction(
+          statusReaction.dataset.statusReaction,
+          statusReaction.dataset.statusReactionEmoji,
+        );
+        await refreshStatusReactionData();
+      } catch (error) {
+        showToast(`Could not react to status: ${friendlyError(error)}`);
+      } finally {
+        statusReaction.disabled = false;
+      }
+      return;
+    }
     if (event.target.closest('#emoji-picker-toggle')) {
       const picker = $('emoji-picker');
       const button = $('emoji-picker-toggle');

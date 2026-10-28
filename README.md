@@ -149,8 +149,9 @@ can access.
    `db/supabase/014_chat_pin_limit.sql`, and
    `db/supabase/015_unread_behavior.sql`, and
    `db/supabase/016_voice_note_metadata.sql`,
-   `db/supabase/017_notification_preferences.sql`, and
-   `db/supabase/018_disappearing_messages.sql` in order in its SQL Editor. To roll
+   `db/supabase/017_notification_preferences.sql`,
+   `db/supabase/018_disappearing_messages.sql`, and
+   `db/supabase/019_navigation_status_reactions.sql` in order in its SQL Editor. To roll
    back message replies, run `db/supabase/008_message_replies.down.sql`; to
    roll back reaction scoping, run
    `db/supabase/007_chat_reaction_scoping.down.sql`; to roll back read receipts
@@ -168,7 +169,9 @@ can access.
    preferences can be removed with
    `db/supabase/017_notification_preferences.down.sql`; disappearing
    messages can be disabled with
-   `db/supabase/018_disappearing_messages.down.sql`. The rollback turns off
+   `db/supabase/018_disappearing_messages.down.sql`; status reactions and
+   navigation unread counts can be removed with
+   `db/supabase/019_navigation_status_reactions.down.sql`. The rollback turns off
    future expiry and clears remaining timers while retaining expiry columns
    and pending media-cleanup records for compatibility and safe cleanup. The
    migrations create the chat tables, secure profile search and direct-chat
@@ -178,7 +181,9 @@ can access.
    preview data/actions, read receipts, private chat-live Realtime policies,
    recipient-only mention notifications for direct and group chats, per-chat
    mute preferences, unread indicators, private mention-alert preferences,
-   and per-chat disappearing-message timers. The disappearing-message feature
+   per-chat disappearing-message timers, unread counts in the navigation,
+   and private status-reaction notifications. Status-reaction notifications
+   are marked read when the Status view is opened. The disappearing-message feature
    also requires the `cleanup-expired-media` Edge Function to be deployed.
    If the app reports that `get_chat_disappearing_timer` is missing from the
    schema cache after applying migration 018, run

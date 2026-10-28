@@ -120,6 +120,14 @@ export async function listMyChatSettings(userId) {
   return data ?? [];
 }
 
+export async function getMyNavigationUnreadCounts() {
+  const { data, error } = await client().rpc('get_my_navigation_unread_counts');
+  if (error) throw error;
+  const counts = data?.[0];
+  if (!counts) throw new Error('Unread navigation counts were not returned.');
+  return counts;
+}
+
 export async function setChatMuted(chatId, userId, muted) {
   const { data, error } = await client()
     .from('chat_member_settings')
@@ -488,6 +496,35 @@ export async function listContactStatuses() {
   return data ?? [];
 }
 
+export async function toggleStatusReaction(statusId, reaction) {
+  const { data, error } = await client().rpc('toggle_status_reaction', {
+    target_status_id: statusId,
+    selected_reaction: reaction,
+  });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function listStatusReactions(statusIds) {
+  const { data, error } = await client().rpc('list_status_reactions', {
+    target_status_ids: statusIds,
+  });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function listMyStatusReactionNotifications() {
+  const { data, error } = await client().rpc('list_my_status_reaction_notifications');
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function markMyStatusReactionNotificationsRead() {
+  const { data, error } = await client().rpc('mark_my_status_reaction_notifications_read');
+  if (error) throw error;
+  return data;
+}
+
 export async function editMessage(messageId, body) {
   const { data, error } = await client().rpc('edit_message', {
     target_message_id: messageId,
@@ -656,6 +693,22 @@ export function subscribeToMentions(userId, onMention, onStatus) {
         filter: `user_id=eq.${userId}`,
       },
       onMention,
+    )
+    .subscribe(onStatus);
+  return () => client().removeChannel(channel);
+}
+
+export function subscribeToStatusReactions(onReaction, onStatus) {
+  const channel = client()
+    .channel('status-reactions')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'status_reactions',
+      },
+      onReaction,
     )
     .subscribe(onStatus);
   return () => client().removeChannel(channel);

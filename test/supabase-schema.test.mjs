@@ -167,6 +167,14 @@ test(
         new URL('../db/supabase/018_disappearing_messages.down.sql', import.meta.url),
         'utf8',
       );
+      const navigationStatusReactionsMigration = await readFile(
+        new URL('../db/supabase/019_navigation_status_reactions.sql', import.meta.url),
+        'utf8',
+      );
+      const navigationStatusReactionsDownMigration = await readFile(
+        new URL('../db/supabase/019_navigation_status_reactions.down.sql', import.meta.url),
+        'utf8',
+      );
       const publicationSetup = migration.lastIndexOf('\ndo $$') + 1;
       assert.ok(publicationSetup > 1, 'migration should configure Realtime publication');
       await db.exec(migration.slice(0, publicationSetup));
@@ -232,6 +240,17 @@ test(
       await db.exec(expirySchemaMigration.slice(0, expiryCronSetup));
       await db.exec(expirySchemaMigration.slice(0, expiryCronSetup));
       assert.match(disappearingMessagesDownMigration, /cron\.unschedule/i);
+      const navigationPublicationSetup = navigationStatusReactionsMigration.lastIndexOf('\ndo $$') + 1;
+      assert.ok(navigationPublicationSetup > 1, 'navigation migration should configure status reaction Realtime');
+      assert.match(navigationStatusReactionsMigration, /alter publication supabase_realtime add table public\.status_reactions/i);
+      assert.match(navigationStatusReactionsMigration, /public\.can_view_status\(status\.author_id, status\.expires_at\)/i);
+      const navigationPublicationEnd = navigationStatusReactionsMigration.indexOf('\n$$;', navigationPublicationSetup) + 4;
+      assert.ok(navigationPublicationEnd > navigationPublicationSetup, 'navigation migration should close its Realtime block');
+      const navigationSchemaMigration = navigationStatusReactionsMigration.slice(0, navigationPublicationSetup)
+        + navigationStatusReactionsMigration.slice(navigationPublicationEnd);
+      await db.exec(navigationSchemaMigration);
+      await db.exec(navigationSchemaMigration);
+      assert.match(navigationStatusReactionsDownMigration, /drop table if exists public\.status_reactions/i);
 
       const userA = '00000000-0000-4000-8000-000000000001';
       const userB = '00000000-0000-4000-8000-000000000002';
@@ -411,6 +430,11 @@ test(
         [chatId],
       );
       assert.equal(unreadChatRows[0].unread_count, 1, 'mark unread moves only this member’s unread cursor');
+      const { rows: navigationUnreadCounts } = await db.query(
+        `select direct_unread, group_unread, channel_unread
+         from public.get_my_navigation_unread_counts()`,
+      );
+      assert.equal(navigationUnreadCounts[0].direct_unread, 1, 'navigation counts include unread direct messages');
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [outsider]);
       const { rows: outsiderMentions } = await db.query(
         `select message_id from public.list_my_mentions()`,
@@ -986,6 +1010,43 @@ test(
         [userA],
       );
       assert.deepEqual(visibleStatuses, [{ author_name: 'Alex', body: 'On my way' }]);
+      const { rows: insertedStatusReaction } = await db.query(
+        `select reaction, count, reacted_by_me
+         from public.toggle_status_reaction($1, '❤️')`,
+        [statusId],
+      );
+      assert.deepEqual(insertedStatusReaction, [{
+        reaction: '❤️',
+        count: 1,
+        reacted_by_me: true,
+      }], 'contacts can react to visible status posts');
+      const { rows: ownStatusReactionNotifications } = await db.query(
+        `select status_id from public.list_my_status_reaction_notifications()`,
+      );
+      assert.deepEqual(ownStatusReactionNotifications, [], 'status reactions notify only the status author');
+      await assert.rejects(
+        db.query(`select * from public.toggle_status_reaction($1, '🎉')`, [statusId]),
+        /unsupported reaction/i,
+      );
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
+      const { rows: statusReactionNotifications } = await db.query(
+        `select status_id, reactor_name, reaction, status_body
+         from public.list_my_status_reaction_notifications()`,
+      );
+      assert.deepEqual(statusReactionNotifications, [{
+        status_id: statusId,
+        reactor_name: 'Sam Two',
+        reaction: '❤️',
+        status_body: 'On my way',
+      }], 'status authors receive a notification for reactions');
+      const { rows: markedStatusReactions } = await db.query(
+        `select public.mark_my_status_reaction_notifications_read() as marked_count`,
+      );
+      assert.equal(markedStatusReactions[0].marked_count, 1, 'opening status marks reactions read');
+      const { rows: clearedStatusReactionNotifications } = await db.query(
+        `select status_id from public.list_my_status_reaction_notifications()`,
+      );
+      assert.deepEqual(clearedStatusReactionNotifications, [], 'read status reactions no longer notify');
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
       await db.query(`select public.update_status_visibility('only_me')`);
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
