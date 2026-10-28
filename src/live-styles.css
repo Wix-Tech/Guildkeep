@@ -866,6 +866,11 @@
 .channel-row { min-height: 70px; }
 .section-head { padding: 12px 17px 6px; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
 .status-feed { min-height: 0; width: min(760px, 100%); flex: 1; display: grid; align-content: start; gap: 12px; overflow-y: auto; margin: 0 auto; padding: 20px; }
+.status-feed-header { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.status-feed-header h2 { margin: 0; font-size: 16px; }
+.status-feed-header p { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
+.status-feed-header .primary-button { flex: 0 0 auto; min-height: 40px; padding: 9px 14px; }
+.status-feed-empty { padding: 24px 12px; }
 .status-card { display: grid; gap: 10px; padding: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
 .status-card > header { display: flex; align-items: center; gap: 10px; }
 .status-card > header > span:not(.avatar) { display: grid; gap: 1px; }
@@ -1103,6 +1108,10 @@
   .conversation-footer .composer-tool { min-width: 35px; width: 35px; }
   .message-reply-shortcut { display: none; }
   .status-feed { padding: 12px; }
+  .status-feed-header { position: sticky; top: -12px; z-index: 1; margin: -12px -12px 0; padding: 12px; background: var(--bg); }
+  .status-feed-header h2 { font-size: 14px; }
+  .status-feed-header p { max-width: 190px; font-size: 10px; }
+  .status-feed-header .primary-button { min-height: 42px; padding: 9px 12px; }
   .settings-page { padding: 18px 14px; }
   .settings-push-device { align-items: flex-start; }
   .settings-push-device > button { max-width: 140px; min-height: 38px; white-space: normal; }

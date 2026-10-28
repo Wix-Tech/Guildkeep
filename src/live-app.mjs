@@ -880,6 +880,13 @@ function renderStatusList() {
   }
 }
 
+function openStatusComposer() {
+  $('status-create-form').reset();
+  setStatus($('status-create-status'), '');
+  $('status-create-dialog').hidden = false;
+  $('status-create-form').elements.body.focus();
+}
+
 async function loadChannels(force = false) {
   try {
     const [mine, discovered] = await Promise.all([listMyChannels(), discoverChannels($('chat-search').value)]);
@@ -923,8 +930,13 @@ function renderStatusFeed(authorId = null) {
   const feed = $('status-feed');
   if (!feed) return;
   const statuses = state.statuses.filter((status) => !authorId || status.author_id === authorId);
-  feed.innerHTML = statuses.length
-    ? statuses.map((status) => {
+  feed.innerHTML = `
+    <header class="status-feed-header">
+      <div><h2>Status updates</h2><p>Share a photo, video, or text with your contacts.</p></div>
+      <button class="primary-button" type="button" data-new-status>Post status</button>
+    </header>
+    ${statuses.length
+      ? statuses.map((status) => {
       const reactions = state.statusReactions.filter((reaction) => reaction.status_id === status.id);
       const ownStatus = status.author_id === state.session.user.id;
       const reactionMarkup = STATUS_REACTION_OPTIONS.map((emoji) => {
@@ -952,8 +964,8 @@ function renderStatusFeed(authorId = null) {
         <div class="status-reactions" aria-label="${ownStatus ? 'Reactions to your status' : 'React to this status'}">${reactionMarkup}</div>
         ${status.author_id === state.session.user.id ? `<button class="danger-button status-delete" type="button" data-delete-status="${esc(status.id)}">Delete my status</button>` : ''}
       </article>`;
-    }).join('')
-    : '<div class="welcome"><h2>No active status updates</h2><p>Updates from your direct-chat contacts appear here for 24 hours.</p></div>';
+      }).join('')
+      : '<div class="welcome status-feed-empty"><h2>No active status updates</h2><p>Updates from your direct-chat contacts appear here for 24 hours.</p></div>'}`;
 }
 
 function renderSettingsPage() {
@@ -4326,10 +4338,7 @@ function wire() {
   });
 
   $('new-status').addEventListener('click', () => {
-    $('status-create-form').reset();
-    setStatus($('status-create-status'), '');
-    $('status-create-dialog').hidden = false;
-    $('status-create-form').elements.body.focus();
+    openStatusComposer();
   });
   $('status-create-form').addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -4476,6 +4485,10 @@ function wire() {
   });
 
   $('conversation').addEventListener('click', async (event) => {
+    if (event.target.closest('[data-new-status]')) {
+      openStatusComposer();
+      return;
+    }
     const mentionSuggestion = event.target.closest('[data-mention-id]');
     if (mentionSuggestion) {
       selectMentionSuggestion(mentionSuggestion.dataset.mentionId);
