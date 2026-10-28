@@ -11,6 +11,8 @@ test('composer picker provides emoji recents, original stickers, and Tenor GIF s
     readSource('../src/supabase-chat.mjs'),
     readdir(new URL('../src/stickers/', import.meta.url)),
   ]);
+  assert.match(app, /document\.querySelector\(idOrSelector\)/);
+  assert.match(app, /document\.getElementById\(idOrSelector\)/);
   const stickerAssets = await Promise.all(stickers
     .filter((name) => name.endsWith('.svg'))
     .map((name) => readFile(new URL(`../src/stickers/${name}`, import.meta.url), 'utf8')));

@@ -142,7 +142,14 @@ export async function searchTenorGifs(query) {
   const { data, error } = await client().functions.invoke('tenor-search', {
     body: { query },
   });
-  if (error) throw error;
+  if (error) {
+    const response = error.context;
+    if (response instanceof Response) {
+      const payload = await response.clone().json().catch(() => null);
+      if (typeof payload?.error === 'string') throw new Error(payload.error);
+    }
+    throw error;
+  }
   if (!Array.isArray(data?.results)) throw new Error('GIF search returned an invalid response.');
   return data.results;
 }

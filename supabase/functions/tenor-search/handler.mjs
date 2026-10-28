@@ -99,6 +99,12 @@ export function createTenorSearchHandler({ getEnv, fetchImpl = fetch }) {
       const tenorResponse = await fetchImpl(tenorUrl, { signal: controller.signal });
       if (!tenorResponse.ok) {
         console.error('Tenor GIF search returned an error.', tenorResponse.status);
+        if ([400, 401, 403].includes(tenorResponse.status)) {
+          return jsonResponse({ error: 'Tenor rejected the API key or access. Check TENOR_API_KEY and its API access.' }, 502);
+        }
+        if (tenorResponse.status === 429) {
+          return jsonResponse({ error: 'Tenor GIF search is rate limited. Try again shortly.' }, 429);
+        }
         return jsonResponse({ error: 'GIF search is temporarily unavailable.' }, 502);
       }
       const payload = await tenorResponse.json();

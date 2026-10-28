@@ -88,6 +88,27 @@ test('Tenor search validates input and does not contact Tenor without its secret
   assert.equal(fetchCalls, 1);
 });
 
+test('Tenor search explains invalid API key and rate-limit responses', async () => {
+  for (const [status, message] of [
+    [403, /rejected the API key or access/i],
+    [429, /rate limited/i],
+  ]) {
+    const handler = createTenorSearchHandler({
+      getEnv: (name) => ({
+        SUPABASE_URL: 'https://project.supabase.co',
+        SUPABASE_ANON_KEY: 'public-key',
+        TENOR_API_KEY: 'private-test-key',
+      })[name],
+      fetchImpl: async (input) => new URL(input).pathname === '/auth/v1/user'
+        ? validAuth()
+        : new Response('Unavailable', { status }),
+    });
+    const response = await handler(request({ query: 'cats' }));
+    assert.equal(response.status, status === 429 ? 429 : 502);
+    assert.match((await response.json()).error, message);
+  }
+});
+
 test('Tenor search handles preflight and rejects oversized or malformed requests', async () => {
   const handler = createTenorSearchHandler({ getEnv: () => undefined });
   const options = await handler(new Request('https://app.example/functions/v1/tenor-search', { method: 'OPTIONS' }));

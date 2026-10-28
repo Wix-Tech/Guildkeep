@@ -107,7 +107,11 @@ import {
   updateStatusVisibility,
 } from './supabase-chat.mjs';
 
-const $ = (id) => document.getElementById(id);
+const $ = (idOrSelector) => (
+  /[\s.[\]#>:,+~]/.test(idOrSelector)
+    ? document.querySelector(idOrSelector)
+    : document.getElementById(idOrSelector)
+);
 const baseDocumentTitle = document.title;
 const state = {
   session: null,
