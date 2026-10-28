@@ -286,6 +286,12 @@ can access.
     reset link, choose a new password, and sign in with the new password. The
     Supabase Auth redirect URL allow-list must include the app origin for the
     recovery email to land back in the client.
+ 12. Verify the latest chat surfaces: open a conversation with no messages and
+     confirm the empty state renders; send a message and confirm the outgoing
+     bubble animates once; open the command palette with Cmd/Ctrl+K and confirm
+     it can run actions and that ? opens the shortcuts sheet; confirm the online
+     status ring appears on avatars in a direct chat; paste an image or file into
+     the composer and confirm it joins the send queue.
 
 Email confirmation behavior is controlled by the Supabase Auth project settings.
 The client never contains a service-role key. Direct chat creation and message
