@@ -220,6 +220,9 @@ const state = {
   profilePreviewTab: 'media',
   profileLightboxIndex: -1,
   profileLightboxOrigin: null,
+  commandPaletteOpen: false,
+  commandPaletteQuery: '',
+  commandPaletteSelection: 0,
   presenceInterval: null,
   presenceLastTouchAt: 0,
   unsubscribeReadReceipts: null,
@@ -2025,6 +2028,76 @@ function closeProfilePreview(restoreFocus = true) {
   state.profilePreviewContextChatId = null;
   state.profilePreviewOrigin = null;
   state.profilePreviewScroll = null;
+}
+
+function commandPaletteActions() {
+  const actions = [
+    { id: 'search', title: 'Search messages', hint: 'Open global message search', run: () => openMessageSearch('global') },
+    { id: 'profile', title: 'Open my profile', hint: 'Edit your Guildkeep profile', run: () => openProfileEditor() },
+  ];
+  const query = (state.commandPaletteQuery ?? '').trim().toLowerCase();
+  const filtered = query
+    ? actions.filter((action) => `${action.title} ${action.hint}`.toLowerCase().includes(query))
+    : actions;
+  return filtered;
+}
+
+function renderCommandPalette() {
+  const results = $('command-palette-results');
+  const status = $('command-palette-status');
+  if (!results || !status) return;
+  const actions = commandPaletteActions();
+  if (!actions.length) {
+    results.innerHTML = '<p class="profile-preview-empty">No matching commands.</p>';
+    status.textContent = '';
+    return;
+  }
+  results.innerHTML = actions.map((action, index) => `
+    <button type="button" class="people-result${index === state.commandPaletteSelection ? ' is-selected' : ''}" data-command-action="${esc(action.id)}">
+      <span class="people-result-copy"><strong>${esc(action.title)}</strong><small>${esc(action.hint)}</small></span>
+      <span class="people-result-action">Run</span>
+    </button>`).join('');
+  status.textContent = `${actions.length} command${actions.length === 1 ? '' : 's'}`;
+}
+
+function closeCommandPalette() {
+  state.commandPaletteOpen = false;
+  state.commandPaletteQuery = '';
+  state.commandPaletteSelection = 0;
+  const palette = $('command-palette');
+  if (palette) palette.hidden = true;
+  const input = $('command-palette-input');
+  if (input) input.value = '';
+}
+
+function openCommandPalette() {
+  state.commandPaletteOpen = true;
+  state.commandPaletteQuery = '';
+  state.commandPaletteSelection = 0;
+  const palette = $('command-palette');
+  if (palette) palette.hidden = false;
+  const input = $('command-palette-input');
+  if (input) input.value = '';
+  renderCommandPalette();
+  input?.focus();
+}
+
+function runCommandAction(actionId) {
+  const action = commandPaletteActions().find((item) => item.id === actionId);
+  if (!action) return;
+  closeCommandPalette();
+  action.run();
+}
+
+function renderShortcuts() {
+  const list = $('shortcuts-list');
+  if (!list) return;
+  list.innerHTML = `
+    <div class="command-shortcut-row"><kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> Open the command palette</div>
+    <div class="command-shortcut-row"><kbd>J</kbd> / <kbd>K</kbd> Move between messages in this chat</div>
+    <div class="command-shortcut-row"><kbd>R</kbd> Reply to the selected message</div>
+    <div class="command-shortcut-row"><kbd>E</kbd> Edit the selected message</div>
+    <div class="command-shortcut-row"><kbd>Esc</kbd> Close overlays</div>`;
 }
 
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
@@ -4048,6 +4121,29 @@ function wire() {
     }
     if (event.target.closest('.lightbox-next')) renderProfileLightbox(state.profileLightboxIndex + 1);
   });
+  $('command-palette-close').addEventListener('click', closeCommandPalette);
+  $('command-palette').addEventListener('click', (event) => {
+    if (event.target === event.currentTarget) closeCommandPalette();
+  });
+  $('command-palette-results').addEventListener('click', (event) => {
+    const action = event.target.closest('[data-command-action]');
+    if (action) runCommandAction(action.dataset.commandAction);
+  });
+  $('command-palette-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    const actions = commandPaletteActions();
+    const action = actions[state.commandPaletteSelection];
+    if (action) runCommandAction(action.id);
+  });
+  $('command-palette-input').addEventListener('input', (event) => {
+    state.commandPaletteQuery = event.currentTarget.value;
+    state.commandPaletteSelection = 0;
+    renderCommandPalette();
+  });
+  $('shortcuts-close').addEventListener('click', () => { $('shortcuts-overlay').hidden = true; });
+  $('shortcuts-overlay').addEventListener('click', (event) => {
+    if (event.target === event.currentTarget) $('shortcuts-overlay').hidden = true;
+  });
   document.addEventListener('click', async (event) => {
     const emojiPicker = $('emoji-picker');
     const clickPath = event.composedPath();
@@ -5223,15 +5319,70 @@ function wire() {
   });
 
   document.addEventListener('keydown', (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      event.preventDefault();
+      if (!$('command-palette').hidden) closeCommandPalette();
+      else openCommandPalette();
+      return;
+    }
+    if (event.key === '?' && !event.repeat) {
+      event.preventDefault();
+      const shortcuts = $('shortcuts-overlay');
+      if (shortcuts) shortcuts.hidden = !shortcuts.hidden;
+      return;
+    }
+    const paletteOpen = !$('command-palette').hidden;
+    const shortcutsOpen = !$('shortcuts-overlay').hidden;
+    const eventTargetIsTyping = Boolean(event.target.matches?.('input, textarea, select') || event.target.isContentEditable);
+    if (
+      !paletteOpen
+      && !shortcutsOpen
+      && !eventTargetIsTyping
+      && state.activeChatId
+      && state.messages.length
+      && (event.key.toLowerCase() === 'j' || event.key.toLowerCase() === 'k')
+    ) {
+      event.preventDefault();
+      const currentIndex = state.selectedMessageId
+        ? state.messages.findIndex((message) => message.id === state.selectedMessageId)
+        : -1;
+      const nextIndex = event.key.toLowerCase() === 'j'
+        ? Math.min(currentIndex + 1, state.messages.length - 1)
+        : Math.max(currentIndex - 1, 0);
+      const next = state.messages[nextIndex];
+      if (next && next.id !== state.selectedMessageId) {
+        state.selectedMessageId = next.id;
+        void scrollToMessage(next.id);
+      }
+      return;
+    }
     if (
       event.key.toLowerCase() === 'r'
       && !event.repeat
-      && !event.target.matches('input, textarea, select, [contenteditable="true"]')
-      && state.hoveredMessageId
-      && document.querySelector(`.message[data-message-id="${CSS.escape(state.hoveredMessageId)}"]`)
+      && !eventTargetIsTyping
+      && !paletteOpen
+      && !shortcutsOpen
+      && (state.hoveredMessageId ?? state.selectedMessageId)
+      && document.querySelector(`.message[data-message-id="${CSS.escape(state.hoveredMessageId ?? state.selectedMessageId)}"]`)
     ) {
       event.preventDefault();
-      setReplyTarget(state.hoveredMessageId);
+      setReplyTarget(state.hoveredMessageId ?? state.selectedMessageId);
+    }
+    if (event.key.toLowerCase() === 'e' && !event.repeat && !eventTargetIsTyping && !paletteOpen && !shortcutsOpen) {
+      const message = state.selectedMessageId
+        ? state.messages.find((item) => item.id === state.selectedMessageId) ?? null
+        : null;
+      const mayEdit = Boolean(
+        message
+        && message.sender_id === state.session.user.id
+        && message.body
+        && Date.now() - new Date(message.created_at).getTime() <= 15 * 60 * 1000,
+      );
+      if (mayEdit) {
+        event.preventDefault();
+        $('edit-message-dialog').hidden = false;
+        $('edit-message-form').elements.body.value = message.body;
+      }
     }
     if (event.key === 'Escape') {
       state.peopleSearchSequence += 1;
