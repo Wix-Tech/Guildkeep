@@ -3913,6 +3913,13 @@ function wire() {
     if (hint) hint.hidden = true;
     queueChatMediaFiles(Array.from(event.dataTransfer?.files ?? []));
   });
+  $('message-form')?.querySelector('textarea[name="body"]')?.addEventListener('paste', (event) => {
+    if (!canDropChatMedia()) return;
+    const files = Array.from(event.clipboardData?.files ?? []);
+    if (!files.length) return;
+    event.preventDefault();
+    queueChatMediaFiles(files);
+  });
   $('conversation').addEventListener('wheel', (event) => {
     const list = event.target.closest('#message-list');
     if (list) armReadAtBottom(list);
