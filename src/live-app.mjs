@@ -45,6 +45,7 @@ import {
   forwardMessage,
   getProfile,
   getProfilePreview,
+  getMyMentionNotificationsEnabled,
   getMessage,
   getSession,
   isConfigured,
@@ -99,6 +100,7 @@ import {
   reportProfilePreview,
   updateMyProfile,
   updateChatSettings,
+  updateMyMentionNotificationsEnabled,
   updateStatusVisibility,
 } from './supabase-chat.mjs';
 
@@ -872,6 +874,7 @@ function renderStatusFeed(authorId = null) {
 
 function renderSettingsPage() {
   const statusVisibility = state.profile.status_visibility ?? 'contacts';
+  const mentionNotificationsEnabled = state.profile.mention_notifications_enabled !== false;
   $('conversation').innerHTML = `
     <section class="settings-page">
       <h2>Settings</h2>
@@ -891,6 +894,13 @@ function renderSettingsPage() {
         </div>
         <div class="settings-row"><span><strong>Media</strong><small>Chat and status media are limited to 25 MB per file.</small></span><span class="privacy-value">25 MB</span></div>
       </div>
+      <div class="settings-section">
+        <h3>Notifications</h3>
+        <label class="settings-row settings-notification-toggle">
+          <span><strong>Mention alerts</strong><small>Show the unread badge and alert when someone mentions you. Turning this off keeps unread mentions in the bell without a badge or toast.</small></span>
+          <input id="settings-mention-notifications" type="checkbox" ${mentionNotificationsEnabled ? 'checked' : ''} />
+        </label>
+      </div>
     </section>`;
   $('settings-invite').addEventListener('click', () => {
     void shareLink('Join me on Guildkeep', `Chat with me as @${state.profile.username}.`, currentInviteUrl('username', state.profile.username));
@@ -908,6 +918,23 @@ function renderSettingsPage() {
       showToast(`Could not update status privacy: ${friendlyError(error)}`);
     } finally {
       select.disabled = false;
+    }
+  });
+  $('settings-mention-notifications').addEventListener('change', async (event) => {
+    const checkbox = event.currentTarget;
+    const previousEnabled = state.profile.mention_notifications_enabled !== false;
+    checkbox.disabled = true;
+    try {
+      state.profile.mention_notifications_enabled = await updateMyMentionNotificationsEnabled(checkbox.checked);
+      renderMentionNotifications();
+      showToast(checkbox.checked
+        ? 'Mention alerts are on.'
+        : 'Mention alerts are off. Unread mentions remain in the notification list.');
+    } catch (error) {
+      checkbox.checked = previousEnabled;
+      showToast(`Could not update mention alerts: ${friendlyError(error)}`);
+    } finally {
+      checkbox.disabled = false;
     }
   });
 }
@@ -2224,20 +2251,24 @@ function renderMentionNotifications() {
   const badge = $('mention-notification-count');
   const list = $('mention-notification-list');
   if (!button || !badge || !list) return;
-  const count = state.mentions.length;
+  const enabled = state.profile?.mention_notifications_enabled !== false;
+  const count = enabled ? state.mentions.length : 0;
   badge.hidden = count === 0;
   badge.textContent = count > 50 ? '50+' : String(count);
-  button.setAttribute('aria-label', count
-    ? `Notifications, ${count} unread mentions`
-    : 'Notifications, no unread mentions');
-  list.innerHTML = count
-    ? state.mentions.map((mention) => `<button type="button" class="mention-notification"
+  button.setAttribute('aria-label', !enabled
+    ? 'Notifications, mention alerts are off'
+    : count ? `Notifications, ${count} unread mentions` : 'Notifications, no unread mentions');
+  const mentions = state.mentions.map((mention) => `<button type="button" class="mention-notification"
         data-mention-chat="${esc(mention.chat_id)}" data-mention-message="${esc(mention.message_id)}">
       <span class="mention-notification-top"><strong>${esc(mention.sender_name)}</strong><span>mentioned you in ${esc(mention.chat_name)}</span></span>
       <span class="mention-notification-body">${esc(mention.body)}</span>
       <time datetime="${esc(mention.created_at)}">${esc(new Date(mention.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }))}</time>
-    </button>`).join('')
-    : '<p class="mention-notifications-empty">No unread mentions.</p>';
+    </button>`).join('');
+  list.innerHTML = state.mentions.length
+    ? `${enabled ? '' : `<p class="mention-notifications-empty">Mention alerts are off. ${state.mentions.length} unread mention${state.mentions.length === 1 ? ' is' : 's are'} still saved.</p>`}${mentions}`
+    : enabled
+      ? '<p class="mention-notifications-empty">No unread mentions.</p>'
+      : '<p class="mention-notifications-empty">Mention alerts are off. New mentions will still be saved here.</p>';
 }
 
 async function refreshMentions(announce = false) {
@@ -2248,7 +2279,7 @@ async function refreshMentions(announce = false) {
   const previousIds = state.mentionIds;
   state.mentions = rows;
   state.mentionIds = new Set(rows.map((mention) => mention.message_id));
-  if (announce && state.mentionsLoaded) {
+  if (announce && state.mentionsLoaded && state.profile?.mention_notifications_enabled !== false) {
     const newest = rows.find((mention) => !previousIds.has(mention.message_id));
     if (newest) showToast(`${newest.sender_name} mentioned you in ${newest.chat_name}.`);
   }
@@ -2595,7 +2626,12 @@ async function initialiseWorkspace(session) {
     }, 60_000);
     const profile = await getProfile(userId);
     if (state.session?.user?.id !== userId) return;
-    state.profile = profile;
+    const mentionNotificationsEnabled = await getMyMentionNotificationsEnabled();
+    if (state.session?.user?.id !== userId) return;
+    state.profile = {
+      ...profile,
+      mention_notifications_enabled: mentionNotificationsEnabled,
+    };
     $('profile-label').textContent = `@${state.profile.username}`;
     await refreshChats();
     if (state.session?.user?.id !== userId) return;

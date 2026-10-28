@@ -434,6 +434,20 @@ export async function updateStatusVisibility(visibility) {
   return data;
 }
 
+export async function getMyMentionNotificationsEnabled() {
+  const { data, error } = await client().rpc('get_my_mention_notifications_enabled');
+  if (error) throw error;
+  return data;
+}
+
+export async function updateMyMentionNotificationsEnabled(enabled) {
+  const { data, error } = await client().rpc('update_my_mention_notifications_enabled', {
+    new_enabled: enabled,
+  });
+  if (error) throw error;
+  return data;
+}
+
 export async function createStatus(statusId, body, mediaPath = null, mediaType = null) {
   const { data, error } = await client().rpc('create_status', {
     status_id: statusId,

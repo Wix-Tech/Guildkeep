@@ -112,7 +112,9 @@ conversation header and top bar, searches either the active conversation or
 accessible conversations, matches word prefixes, and opens the selected message
 with a two-second highlight. Typing `@` in a direct or group chat suggests its
 members; selecting a name inserts their username mention. The notification bell
-lists unread mentions and jumps to the selected message.
+lists unread mentions and jumps to the selected message. Settings can hide the
+mention badge and new-mention toast without deleting unread mentions from the
+bell list.
 Messages can be pinned in direct chats; only group or channel owners and
 admins can pin or remove pins there. Pinned messages are shared with chat
 members, update live, and can be opened from the conversation banner.
@@ -144,7 +146,8 @@ can access.
    `db/supabase/013_mentions_notifications.sql`,
    `db/supabase/014_chat_pin_limit.sql`, and
    `db/supabase/015_unread_behavior.sql`, and
-   `db/supabase/016_voice_note_metadata.sql` in order in its SQL Editor. To roll
+   `db/supabase/016_voice_note_metadata.sql` and
+   `db/supabase/017_notification_preferences.sql` in order in its SQL Editor. To roll
    back message replies, run `db/supabase/008_message_replies.down.sql`; to
    roll back reaction scoping, run
    `db/supabase/007_chat_reaction_scoping.down.sql`; to roll back read receipts
@@ -158,14 +161,16 @@ can access.
    limit and unread behavior can be rolled back with the corresponding
    `014_chat_pin_limit.down.sql` and `015_unread_behavior.down.sql` files.
    Voice-note metadata can be removed with
-   `db/supabase/016_voice_note_metadata.down.sql`. The
+   `db/supabase/016_voice_note_metadata.down.sql`; mention notification
+   preferences can be removed with
+   `db/supabase/017_notification_preferences.down.sql`. The
    migrations create the chat tables, secure profile search and direct-chat
    RPCs, profile trigger, row-level security policies, group roles/admin
    commands, message reactions, invite flows, channels, contact-only statuses,
    chat-avatar storage, admin settings RPCs, status privacy controls, profile
    preview data/actions, read receipts, private chat-live Realtime policies,
    recipient-only mention notifications for direct and group chats, per-chat
-   mute preferences, and unread indicators.
+   mute preferences, unread indicators, and private mention-alert preferences.
    Read receipts are visible only to members of the same chat; typing and
    presence use private per-chat channels and are never stored as message rows.
    Message replies are
@@ -198,7 +203,7 @@ can access.
    previewing/removing queued items, observing upload progress, and retrying an
    intentionally failed upload. Confirm each file sends as its own message.
    Test status and voice-note flows with files under 25 MB. Apply all
-   sixteen SQL migrations before testing channels, group/channel settings,
+   seventeen SQL migrations before testing channels, group/channel settings,
    profile photos, statuses, message media, and replies.
 8. In two accounts, open the same direct chat. Scroll the recipient to the
    bottom to send a read receipt; confirm the sender sees a grey sent tick turn
@@ -210,6 +215,10 @@ can access.
    before the first unread message. Mute that chat and confirm its number is
    replaced by a dot; unmute it and scroll to the bottom to clear the divider
    and unread count.
+10. In two accounts, send a mention with mention alerts enabled and confirm the
+    badge and toast appear. Disable **Mention alerts**, send another mention,
+    and confirm no badge or toast appears while the unread mention remains
+    available from the bell. Reload and verify the preference persists.
 
 Email confirmation behavior is controlled by the Supabase Auth project settings.
 The client never contains a service-role key. Direct chat creation and message

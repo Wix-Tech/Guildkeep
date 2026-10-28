@@ -875,6 +875,9 @@
 .settings-section { margin-top: 24px; }
 .settings-section h3 { margin: 0 0 8px; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; }
 .settings-section .settings-row { border-color: var(--line); }
+.settings-notification-toggle { cursor: pointer; }
+.settings-notification-toggle > span { min-width: 0; }
+.settings-notification-toggle > input { flex: 0 0 18px; width: 18px; min-height: 18px; margin: 0 3px 0 0; accent-color: var(--accent); }
 .privacy-value { color: #ffc092; font-size: 10px; }
 .feature-form { display: grid; gap: 12px; }
 .feature-form label { display: grid; gap: 6px; color: #c8b9ae; font-size: 11px; }
