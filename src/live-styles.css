@@ -652,6 +652,73 @@
 }
 .gif-picker-item:hover, .gif-picker-item:focus-visible { border-color: #e8873a; outline: 0; }
 .gif-picker-item img { display: block; width: 100%; height: 70px; object-fit: cover; }
+.chat-media-queue {
+  flex: 0 0 100%;
+  display: grid;
+  gap: 7px;
+  max-height: 180px;
+  overflow: auto;
+}
+.chat-media-queue[hidden] { display: none; }
+.chat-media-queue-item {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  color: #d7c4b4;
+  background: #17120e;
+  border: 1px solid #49301f;
+  border-radius: 9px;
+}
+.chat-media-queue-item > img, .chat-media-queue-item > video, .chat-media-file-icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  color: #eaa170;
+  background: #241a13;
+  border-radius: 6px;
+  object-fit: cover;
+  font-size: 10px;
+}
+.chat-media-queue-details { display: grid; min-width: 0; gap: 3px; }
+.chat-media-queue-details strong, .chat-media-queue-details > span, .chat-media-queue-details small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-media-queue-details strong { font-size: 10px; }
+.chat-media-queue-details > span, .chat-media-queue-details small { color: #a99a8f; font-size: 9px; }
+.chat-media-queue-details small.is-error { color: #ff9a78; }
+.chat-media-queue-details progress { width: 100%; height: 5px; accent-color: #e8873a; }
+.conversation-footer .chat-media-queue-item button {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0 7px;
+  color: #e7c7b0;
+  background: transparent;
+  border: 1px solid #49301f;
+  border-radius: 7px;
+  font-size: 10px;
+}
+.conversation-footer .chat-media-queue-item button:last-child { min-width: 28px; width: 28px; padding: 0; font-size: 16px; }
+.chat-media-drop-hint {
+  position: absolute;
+  z-index: 15;
+  inset: 5px;
+  display: grid;
+  place-items: center;
+  color: #ffd1ad;
+  background: rgba(25, 18, 13, 0.96);
+  border: 1px dashed #e8873a;
+  border-radius: 12px;
+  pointer-events: none;
+  font-size: 13px;
+}
+.chat-media-drop-hint[hidden] { display: none; }
+.conversation-footer.is-dragging { outline: 2px solid #e8873a; outline-offset: -3px; }
 .picker-media-draft {
   flex: 0 0 100%;
   display: flex;

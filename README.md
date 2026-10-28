@@ -80,7 +80,9 @@ delete their own active status posts. Messages can also be replied to from the
 action menu, by swiping right on mobile, or with the desktop reply shortcut;
 quote previews jump to the original message and show “Message deleted” when it
 was removed. Profile photos, chat attachments, and status
-media are limited to 25 MB per file. Status updates expire after 24 hours;
+media are limited to 25 MB per file. Chat attachments support multiple
+selection, drag-and-drop, previews with removal, upload progress, and retrying
+failed files. Status updates expire after 24 hours;
 voice notes can be recorded by holding the microphone, sent on release, or
 cancelled by sliding left. Their waveform, duration, scrubbing, and 1×/1.5×/2×
 playback speed are stored with each message; failed sends keep a retry action.
@@ -192,7 +194,10 @@ can access.
    message in the conversation composer.
 6. Use **New group** to create a group. Share its invite link from group details;
    admins can type `/help` in a group conversation to see available commands.
-7. Test media, status, and voice-note flows with files under 25 MB. Apply all
+7. Test multi-file attachments by selecting and dragging files into a chat,
+   previewing/removing queued items, observing upload progress, and retrying an
+   intentionally failed upload. Confirm each file sends as its own message.
+   Test status and voice-note flows with files under 25 MB. Apply all
    sixteen SQL migrations before testing channels, group/channel settings,
    profile photos, statuses, message media, and replies.
 8. In two accounts, open the same direct chat. Scroll the recipient to the

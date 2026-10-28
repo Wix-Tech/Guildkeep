@@ -148,6 +148,7 @@ const state = {
   voiceStarting: false,
   voiceSamples: [],
   pendingVoiceUploads: new Map(),
+  pendingChatMedia: new Map(),
   voicePlayback: null,
   recentEmojis: null,
   recentEmojiStorageWarningShown: false,
@@ -516,6 +517,13 @@ function clearWorkspace() {
     URL.revokeObjectURL(pending.optimistic.media_url);
   }
   state.pendingVoiceUploads.clear();
+  for (const queue of state.pendingChatMedia.values()) {
+    for (const item of queue) {
+      item.abortController?.abort();
+      if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+    }
+  }
+  state.pendingChatMedia.clear();
   stopChatLive();
   state.unsubscribeMentions?.();
   state.unsubscribeMentions = null;
@@ -1783,6 +1791,99 @@ function validateUpload(file, types = CHAT_MEDIA_TYPES) {
   if (!types.has(file.type)) throw new Error('This file type is not supported.');
 }
 
+function renderPendingChatMedia() {
+  const container = $('chat-media-queue');
+  if (!container) return;
+  const queue = state.pendingChatMedia.get(state.activeChatId) ?? [];
+  container.hidden = !queue.length;
+  container.innerHTML = queue.map((item) => {
+    const preview = item.previewUrl
+      ? item.file.type.startsWith('video/')
+        ? `<video src="${esc(item.previewUrl)}" muted playsinline preload="metadata" aria-label="Preview ${esc(item.file.name)}"></video>`
+        : `<img src="${esc(item.previewUrl)}" alt="Preview ${esc(item.file.name)}" />`
+      : `<span class="chat-media-file-icon" aria-hidden="true">${item.file.type === 'application/pdf' ? 'PDF' : item.file.type.startsWith('audio/') ? '♪' : 'FILE'}</span>`;
+    const status = item.status === 'uploading'
+      ? item.progress === null ? 'Uploading…' : `Uploading ${item.progress}%`
+      : item.status === 'failed' ? item.error : 'Ready to send';
+    const progress = item.status === 'uploading'
+      ? `<progress max="100" ${item.progress === null ? '' : `value="${item.progress}"`}
+          aria-label="Uploading ${esc(item.file.name)}${item.progress === null ? '' : ` ${item.progress}%`}"></progress>`
+      : '';
+    const retry = item.status === 'failed'
+      ? `<button type="button" data-retry-chat-media="${esc(item.id)}">Retry</button>`
+      : '';
+    return `<article class="chat-media-queue-item" data-chat-media-item="${esc(item.id)}">
+      ${preview}
+      <div class="chat-media-queue-details">
+        <strong title="${esc(item.file.name)}">${esc(item.file.name)}</strong>
+        <span>${esc(formatUploadSize(item.file.size))}</span>
+        ${progress}
+        <small class="${item.status === 'failed' ? 'is-error' : ''}" ${item.status === 'failed' ? 'role="status"' : ''}>${esc(status)}</small>
+      </div>
+      ${retry}
+      <button type="button" data-remove-chat-media="${esc(item.id)}"
+        aria-label="Remove ${esc(item.file.name)}" ${item.status === 'uploading' ? 'disabled' : ''}>×</button>
+    </article>`;
+  }).join('');
+  const sending = queue.some((item) => item.status === 'uploading');
+  const sendButton = $('message-form')?.querySelector('button[type="submit"]');
+  if (sendButton) {
+    sendButton.disabled = sending;
+    sendButton.textContent = queue.length ? `Send ${queue.length} file${queue.length === 1 ? '' : 's'}` : 'Send';
+  }
+  const attachButton = $('attach-media');
+  if (attachButton) attachButton.disabled = sending;
+}
+
+function formatUploadSize(size) {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function queueChatMediaFiles(files) {
+  if (!$('message-form') || !state.activeChatId) return;
+  const chatId = state.activeChatId;
+  const queue = state.pendingChatMedia.get(chatId) ?? [];
+  let added = 0;
+  for (const file of files) {
+    try {
+      validateUpload(file);
+      queue.push({
+        id: crypto.randomUUID(),
+        file,
+        previewUrl: file.type.startsWith('image/') || file.type.startsWith('video/')
+          ? URL.createObjectURL(file)
+          : null,
+        status: 'queued',
+        progress: null,
+        error: '',
+        abortController: null,
+        caption: undefined,
+        replyToId: undefined,
+      });
+      added += 1;
+    } catch (error) {
+      showToast(`Could not add ${file.name || 'file'}: ${friendlyError(error)}`);
+    }
+  }
+  if (added) {
+    state.pendingChatMedia.set(chatId, queue);
+    renderPendingChatMedia();
+    showToast(`${added} file${added === 1 ? '' : 's'} added. Review and send when ready.`);
+  }
+}
+
+function removeQueuedChatMedia(chatId, itemId) {
+  const queue = state.pendingChatMedia.get(chatId);
+  const index = queue?.findIndex((item) => item.id === itemId) ?? -1;
+  if (index < 0 || queue[index].status === 'uploading') return;
+  const [item] = queue.splice(index, 1);
+  if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+  if (!queue.length) state.pendingChatMedia.delete(chatId);
+  if (state.activeChatId === chatId) renderPendingChatMedia();
+}
+
 async function hydrateMessages(messages) {
   return Promise.all(messages.map(async (message) => ({
     ...message,
@@ -1806,9 +1907,21 @@ function openProfileEditor() {
   $('profile-dialog').hidden = false;
 }
 
-async function sendChatMedia(file, voiceNote = false, caption = '', chat = state.activeChat, voiceMetadata = null) {
+async function sendChatMedia(
+  file,
+  voiceNote = false,
+  caption = '',
+  chat = state.activeChat,
+  voiceMetadata = null,
+  uploadOptions = {},
+) {
   if (!chat) return;
   validateUpload(file);
+  const senderId = state.session?.user?.id;
+  if (!senderId) throw new Error('Sign in before uploading media.');
+  const replyToId = Object.hasOwn(uploadOptions, 'replyToId')
+    ? uploadOptions.replyToId
+    : state.replyingTo?.id ?? null;
   const media = {
     type: file.type,
     name: voiceNote ? 'Voice note' : file.name,
@@ -1816,22 +1929,39 @@ async function sendChatMedia(file, voiceNote = false, caption = '', chat = state
     voiceDurationMs: voiceMetadata?.durationMs ?? null,
     voiceWaveform: voiceMetadata?.waveform ?? null,
   };
-  const path = `${chat.chat_id}/${state.session.user.id}/${crypto.randomUUID()}.${mediaExtension(file.type)}`;
+  const path = `${chat.chat_id}/${senderId}/${crypto.randomUUID()}.${mediaExtension(file.type)}`;
+  let messageSent = false;
   try {
-    media.path = await uploadMedia('chat-media', path, file, file.type);
-    const replyToId = state.replyingTo?.id ?? null;
-    await sendMessage(chat.chat_id, state.session.user.id, caption, media, replyToId);
-    if (state.activeChatId === chat.chat_id) {
+    media.path = await uploadMedia('chat-media', path, file, file.type, {
+      onProgress: uploadOptions.onProgress,
+      signal: uploadOptions.signal,
+    });
+    if (uploadOptions.signal?.aborted) {
+      const error = new Error('Media upload was canceled.');
+      error.name = 'AbortError';
+      throw error;
+    }
+    await sendMessage(chat.chat_id, senderId, caption, media, replyToId);
+    messageSent = true;
+    if (state.activeChatId === chat.chat_id && (state.replyingTo?.id ?? null) === replyToId) {
       state.replyingTo = null;
       updateReplyStrip();
     }
     if (state.activeChatId === chat.chat_id) {
-      state.messages = await hydrateMessages(await listMessages(chat.chat_id));
-      renderMessages();
+      try {
+        state.messages = await hydrateMessages(await listMessages(chat.chat_id));
+        renderMessages();
+      } catch (error) {
+        showToast(`Attachment sent, but the conversation could not refresh: ${friendlyError(error)}`);
+      }
     }
-    await refreshChats();
+    try {
+      await refreshChats();
+    } catch (error) {
+      showToast(`Attachment sent, but the chat list could not refresh: ${friendlyError(error)}`);
+    }
   } catch (error) {
-    if (media.path) {
+    if (media.path && !messageSent) {
       try {
         await removeMedia('chat-media', media.path);
       } catch (cleanupError) {
@@ -1839,6 +1969,75 @@ async function sendChatMedia(file, voiceNote = false, caption = '', chat = state
       }
     }
     throw error;
+  }
+}
+
+async function sendQueuedChatMedia(chat, itemIds, body, rawBody, replyToId) {
+  const chatId = chat.chat_id;
+  const queue = state.pendingChatMedia.get(chatId) ?? [];
+  const items = queue.filter((item) => itemIds.includes(item.id) && item.status !== 'uploading');
+  if (!items.length) return;
+  const initialRawBody = rawBody;
+  let pendingCaption = body;
+  let sent = 0;
+  const input = state.activeChatId === chatId ? $('message-form [name="body"]') : null;
+
+  for (const item of items) {
+    if (!queue.includes(item)) continue;
+    const captionForItem = item.status === 'failed' && body
+      ? body
+      : item.caption ?? pendingCaption;
+    const replyToIdForItem = replyToId ?? item.replyToId ?? null;
+    item.caption = captionForItem;
+    item.replyToId = replyToIdForItem;
+    item.status = 'uploading';
+    item.progress = null;
+    item.error = '';
+    item.abortController = new AbortController();
+    if (state.activeChatId === chatId) renderPendingChatMedia();
+    try {
+      await sendChatMedia(item.file, false, captionForItem, chat, null, {
+        onProgress: (ratio) => {
+          const progress = Math.round(ratio * 100);
+          if (item.progress === progress) return;
+          item.progress = progress;
+          if (state.activeChatId === chatId) renderPendingChatMedia();
+        },
+        signal: item.abortController.signal,
+        replyToId: replyToIdForItem,
+      });
+    } catch (error) {
+      if (!queue.includes(item)) break;
+      item.status = error.name === 'AbortError' ? 'queued' : 'failed';
+      item.progress = null;
+      item.error = error.name === 'AbortError' ? '' : friendlyError(error);
+      item.abortController = null;
+      if (state.activeChatId === chatId) renderPendingChatMedia();
+      if (error.name !== 'AbortError' && state.session) {
+        showToast(`Could not send ${item.file.name}: ${friendlyError(error)}. Retry is available.`);
+      }
+      break;
+    }
+
+    if (!queue.includes(item)) break;
+    item.abortController = null;
+    if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+    queue.splice(queue.indexOf(item), 1);
+    if (!queue.length) state.pendingChatMedia.delete(chatId);
+    sent += 1;
+    pendingCaption = '';
+    if (state.activeChatId === chatId) {
+      if (input?.value === initialRawBody) {
+        input.value = '';
+        state.pickerMediaDraft = null;
+        renderPickerMediaDraft();
+      }
+      renderPendingChatMedia();
+    }
+  }
+
+  if (sent && state.session) {
+    showToast(`Sent ${sent} file${sent === 1 ? '' : 's'}.`);
   }
 }
 
@@ -1878,6 +2077,8 @@ function renderConversation() {
             <span data-reply-copy></span>
             <button type="button" class="reply-cancel" data-cancel-reply aria-label="Cancel reply">×</button>
           </div>
+          <div id="chat-media-drop-hint" class="chat-media-drop-hint" hidden>Drop files to attach</div>
+          <div id="chat-media-queue" class="chat-media-queue" hidden aria-label="Files ready to send"></div>
           <div id="picker-media-draft" class="picker-media-draft" hidden></div>
           <button class="composer-tool" type="button" id="emoji-picker-toggle" aria-label="Open emoji and stickers" aria-expanded="false">☺</button>
           <div id="emoji-picker" class="emoji-picker" hidden role="dialog" aria-label="Emoji and stickers"></div>
@@ -1897,6 +2098,7 @@ function renderConversation() {
       </form>
     </div>`;
   renderPickerMediaDraft();
+  renderPendingChatMedia();
   updateReplyStrip();
   renderMessages();
   renderPinnedMessages();
@@ -3129,6 +3331,34 @@ function wire() {
     state.lastTypingSentAt = now;
     void state.chatLive.broadcastTyping();
   });
+  const canDropChatMedia = () => Boolean(
+    $('message-form')
+    && state.activeChat
+    && (state.activeChat.chat_type !== 'channel' || ['owner', 'admin'].includes(state.activeChat.my_role)),
+  );
+  const hasDraggedFiles = (event) => Array.from(event.dataTransfer?.types ?? []).includes('Files');
+  $('conversation').addEventListener('dragover', (event) => {
+    if (!hasDraggedFiles(event) || !canDropChatMedia()) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    $('message-form')?.classList.add('is-dragging');
+    const hint = $('chat-media-drop-hint');
+    if (hint) hint.hidden = false;
+  });
+  $('conversation').addEventListener('dragleave', (event) => {
+    if (event.relatedTarget && event.currentTarget.contains(event.relatedTarget)) return;
+    $('message-form')?.classList.remove('is-dragging');
+    const hint = $('chat-media-drop-hint');
+    if (hint) hint.hidden = true;
+  });
+  $('conversation').addEventListener('drop', (event) => {
+    if (!hasDraggedFiles(event) || !canDropChatMedia()) return;
+    event.preventDefault();
+    $('message-form')?.classList.remove('is-dragging');
+    const hint = $('chat-media-drop-hint');
+    if (hint) hint.hidden = true;
+    queueChatMediaFiles(Array.from(event.dataTransfer?.files ?? []));
+  });
   $('conversation').addEventListener('wheel', (event) => {
     const list = event.target.closest('#message-list');
     if (list) armReadAtBottom(list);
@@ -4024,12 +4254,33 @@ function wire() {
     event.preventDefault();
     const input = event.target.elements.body;
     const body = messageBodyWithPickerMedia(input.value);
-    if (!body || !state.activeChatId) return;
+    if (!state.activeChatId) return;
+    const chat = state.activeChat;
+    const chatId = state.activeChatId;
+    const queue = state.pendingChatMedia.get(chatId) ?? [];
+    if (!body && !queue.length) return;
     if (body.length > 4000) {
       showToast('Message text is too long to include the selected sticker or GIF.');
       return;
     }
-    const chatId = state.activeChatId;
+    if (queue.length) {
+      const itemIds = queue.filter((item) => item.status !== 'uploading').map((item) => item.id);
+      if (!itemIds.length) return;
+      const rawBody = input.value;
+      const replyToId = state.replyingTo?.id ?? null;
+      try {
+        await sendQueuedChatMedia(chat, itemIds, body, rawBody, replyToId);
+      } catch (error) {
+        showToast(`Could not send attachments: ${friendlyError(error)}`);
+      } finally {
+        if (state.activeChatId === chatId) {
+          renderPendingChatMedia();
+          input.focus();
+        }
+      }
+      return;
+    }
+    if (!body) return;
     const senderId = state.session.user.id;
     const button = event.target.querySelector('button[type="submit"]');
     button.disabled = true;
@@ -4128,6 +4379,37 @@ function wire() {
       $('message-form [name="body"]')?.focus();
       return;
     }
+    const removeChatMedia = event.target.closest('[data-remove-chat-media]');
+    if (removeChatMedia) {
+      removeQueuedChatMedia(state.activeChatId, removeChatMedia.dataset.removeChatMedia);
+      return;
+    }
+    const retryChatMedia = event.target.closest('[data-retry-chat-media]');
+    if (retryChatMedia && state.activeChat) {
+      const input = $('message-form [name="body"]');
+      const rawBody = input?.value ?? '';
+      const body = messageBodyWithPickerMedia(rawBody);
+      if (body.length > 4000) {
+        showToast('Message text is too long to include the selected sticker or GIF.');
+        return;
+      }
+      try {
+        await sendQueuedChatMedia(
+          state.activeChat,
+          [retryChatMedia.dataset.retryChatMedia],
+          body,
+          rawBody,
+          state.replyingTo?.id ?? null,
+        );
+      } catch (error) {
+        showToast(`Could not retry attachment: ${friendlyError(error)}`);
+      } finally {
+        if (state.activeChatId === state.activeChat?.chat_id) {
+          renderPendingChatMedia();
+        }
+      }
+      return;
+    }
     const readCount = event.target.closest('[data-read-count]');
     if (readCount) {
       const count = Number(readCount.dataset.readCount);
@@ -4197,23 +4479,10 @@ function wire() {
     if (state.voiceRecorder?.state === 'recording') state.voiceRecorder.stop();
   });
 
-  $('chat-media-input').addEventListener('change', async (event) => {
-    const file = event.currentTarget.files?.[0];
+  $('chat-media-input').addEventListener('change', (event) => {
+    const files = Array.from(event.currentTarget.files ?? []);
     event.currentTarget.value = '';
-    if (!file) return;
-    const caption = $('message-form [name="body"]')?.value.trim() ?? '';
-    const submit = $('message-form button[type="submit"]');
-    if (submit) submit.disabled = true;
-    try {
-      await sendChatMedia(file, false, caption);
-      const input = $('message-form [name="body"]');
-      if (input) input.value = '';
-      showToast('Attachment sent.');
-    } catch (error) {
-      showToast(`Could not send attachment: ${friendlyError(error)}`);
-    } finally {
-      if (submit) submit.disabled = false;
-    }
+    queueChatMediaFiles(files);
   });
 
   $('conversation').addEventListener('pointerdown', (event) => {

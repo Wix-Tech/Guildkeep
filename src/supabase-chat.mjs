@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { uploadStorageObject } from './storage-upload.mjs';
 
 const config = import.meta.env;
 const projectUrl = config.VITE_SUPABASE_URL?.trim();
@@ -299,7 +300,28 @@ export async function updateMyProfile(displayName, bio, avatarPath = null) {
 
 const storage = () => client().storage;
 
-export async function uploadMedia(bucket, path, file, contentType = file.type) {
+export async function uploadMedia(bucket, path, file, contentType = file.type, options = {}) {
+  if (options.onProgress || options.signal) {
+    const session = await getSession();
+    if (!session?.access_token) throw new Error('Sign in before uploading media.');
+    const objectPath = [bucket, ...path.split('/')].map(encodeURIComponent).join('/');
+    const url = new URL(`/storage/v1/object/${objectPath}`, projectUrl);
+    const body = new FormData();
+    body.append('cacheControl', '3600');
+    body.append('', file);
+    await uploadStorageObject({
+      url: url.href,
+      headers: {
+        apikey: publishableKey,
+        authorization: `Bearer ${session.access_token}`,
+        'x-upsert': 'false',
+      },
+      body,
+      onProgress: options.onProgress,
+      signal: options.signal,
+    });
+    return path;
+  }
   const { data, error } = await storage().from(bucket).upload(path, file, {
     contentType,
     upsert: false,
