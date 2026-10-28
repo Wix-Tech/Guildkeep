@@ -20,7 +20,7 @@ test('composer picker provides emoji recents, original stickers, and GIPHY searc
     .map((name) => readFile(new URL(`../src/stickers/${name}`, import.meta.url), 'utf8')));
 
   assert.match(app, /id="emoji-picker-toggle"/);
-  assert.match(app, />☺ Emoji<\/button>/);
+  assert.match(app, /<span class="composer-emoji-icon" aria-hidden="true">😊<\/span><span>Emoji<\/span>/);
   assert.match(app, /function renderEmojiPicker/);
   assert.match(app, /role="tab" data-emoji-picker-tab="stickers"/);
   assert.match(app, /role="tab" data-emoji-picker-tab="gifs"/);
@@ -58,6 +58,11 @@ test('composer picker provides emoji recents, original stickers, and GIPHY searc
   assert.match(app, />Powered By GIPHY</);
   assert.match(app, /giphyAttributionUrl\(match\[2\]\)/);
   assert.match(styles, /\.emoji-picker-grid/);
+  assert.match(styles, /\.composer-emoji-icon/);
+  assert.match(styles, /@media \(max-width: 420px\)[\s\S]*?\.app-topbar \{ gap: 8px; padding-right: 10px; padding-left: 10px; \}/);
+  assert.match(styles, /\.topbar-profile \.icon-button \{ width: 32px; min-width: 32px; height: 32px; padding: 0; \}/);
+  assert.match(styles, /@media \(max-width: 360px\)[\s\S]*?\.brand-logo \{ width: 30px; height: 30px; \}/);
+  assert.match(styles, /\.brand-copy strong \{ overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; \}/);
   assert.match(styles, /\.toast\s*\{[^}]*bottom:\s*calc\(84px/);
   assert.match(styles, /\.message\.is-sticker\s*\{[^}]*background:\s*transparent/);
   assert.match(styles, /\.message-sticker\s*\{[^}]*width:\s*120px[^}]*height:\s*120px/);
