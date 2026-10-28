@@ -1,6 +1,7 @@
 import './live-styles.css';
 import brandLogoUrl from '../brand/logo.svg';
 import { renderSafeLinks } from './safe-links.mjs';
+import { buildVoiceWaveform, formatVoiceDuration, VOICE_WAVEFORM_BARS } from './voice-notes.mjs';
 import {
   activeTypingUsers,
   compareMessageOrder,
@@ -117,10 +118,15 @@ const state = {
   messagePressTimer: null,
   voiceRecorder: null,
   voiceTimer: null,
+  voiceWaveformTimer: null,
   voiceStream: null,
-  voiceFile: null,
-  voicePreviewUrl: null,
-  voiceChat: null,
+  voiceAudioContext: null,
+  voiceAnalyser: null,
+  voiceHold: null,
+  voiceStarting: false,
+  voiceSamples: [],
+  pendingVoiceUploads: new Map(),
+  voicePlayback: null,
   pendingProfileAvatar: null,
   profilePreview: null,
   profilePreviewSequence: 0,
@@ -209,7 +215,7 @@ function clearTypingTimers() {
 }
 
 function stopChatLive() {
-  discardVoiceNote();
+  cancelVoiceRecording();
   state.unsubscribeMessages?.();
   state.unsubscribeChat?.();
   state.unsubscribeReactions?.();
@@ -329,6 +335,24 @@ function clearWorkspace() {
   clearInterval(state.presenceInterval);
   state.presenceInterval = null;
   state.presenceLastTouchAt = 0;
+  clearInterval(state.voiceTimer);
+  clearInterval(state.voiceWaveformTimer);
+  state.voiceTimer = null;
+  state.voiceWaveformTimer = null;
+  state.voiceHold = { released: true, cancelled: true };
+  if (state.voiceRecorder?.state === 'recording') state.voiceRecorder.stop();
+  state.voiceStream?.getTracks().forEach((track) => track.stop());
+  state.voiceStream = null;
+  state.voiceRecorder = null;
+  state.voiceAnalyser = null;
+  if (state.voiceAudioContext && state.voiceAudioContext.state !== 'closed') {
+    void state.voiceAudioContext.close().catch((error) => console.error('Could not close voice recording audio context.', error));
+  }
+  state.voiceAudioContext = null;
+  for (const pending of state.pendingVoiceUploads.values()) {
+    URL.revokeObjectURL(pending.optimistic.media_url);
+  }
+  state.pendingVoiceUploads.clear();
   stopChatLive();
   state.unsubscribeMentions?.();
   state.unsubscribeMentions = null;
@@ -787,6 +811,14 @@ function formatMessageTime(timestamp) {
 function renderMessages() {
   const list = $('message-list');
   if (!list) return;
+  const activeAudio = [...list.querySelectorAll('.voice-player-audio')].find((audio) => !audio.paused);
+  const playback = activeAudio
+    ? {
+      messageId: activeAudio.closest('[data-message-id]')?.dataset.messageId,
+      currentTime: activeAudio.currentTime,
+      playbackRate: activeAudio.playbackRate,
+    }
+    : null;
   const wasAtBottom = list.scrollHeight <= list.clientHeight || isScrolledToBottom(list);
   const previousScrollTop = list.scrollTop;
   if (state.loadingMessages) {
@@ -844,7 +876,7 @@ function renderMessages() {
         return `${unreadDivider}<div class="message ${own ? 'outgoing' : ''} is-deleted" data-message-id="${esc(message.id)}"><em>Message deleted</em></div>`;
       }
       return `
-        ${unreadDivider}<div class="message ${own ? 'outgoing' : ''} ${sticker ? 'is-sticker' : ''}" data-message-id="${esc(message.id)}" tabindex="0">
+        ${unreadDivider}<div class="message ${own ? 'outgoing' : ''} ${sticker ? 'is-sticker' : ''} ${message.pending_voice ? 'is-pending-voice' : ''}" data-message-id="${esc(message.id)}" tabindex="0">
           <div class="message-quick-reactions" aria-label="Quick reactions">
             ${['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji) => `<button type="button"
               data-quick-reaction="${esc(emoji)}" data-reaction-message="${esc(message.id)}"
@@ -885,6 +917,7 @@ function renderMessages() {
         </div>`;
     })
     .join('');
+  bindVoicePlayers(list, playback);
   list.scrollTop = wasAtBottom ? list.scrollHeight : previousScrollTop;
   if (wasAtBottom && state.readAckArmed) void markChatReadIfAtBottom();
 }
@@ -1099,7 +1132,8 @@ async function jumpToSearchResult(result) {
 function renderMessageMedia(message) {
   if (!message.media_url) return '';
   const src = esc(message.media_url);
-  if (message.voice_note || message.media_type?.startsWith('audio/')) {
+  if (message.voice_note) return renderVoicePlayer(message);
+  if (message.media_type?.startsWith('audio/')) {
     return `<audio class="message-media-audio" controls preload="metadata" src="${src}"></audio>`;
   }
   if (message.media_type?.startsWith('image/')) {
@@ -1109,6 +1143,113 @@ function renderMessageMedia(message) {
     return `<video class="message-media-video" controls preload="metadata" src="${src}"></video>`;
   }
   return `<a class="message-file" href="${src}" target="_blank" rel="noopener noreferrer">↧ ${esc(message.file_name ?? 'Download attachment')}</a>`;
+}
+
+function renderVoicePlayer(message) {
+  const duration = Number(message.voice_duration_ms) || 0;
+  const peaks = Array.isArray(message.voice_waveform)
+    ? message.voice_waveform
+      .slice(0, VOICE_WAVEFORM_BARS)
+      .map((peak) => Math.min(1, Math.max(0.08, Number(peak) || 0.08)))
+    : [];
+  const bars = peaks.length ? peaks : Array.from({ length: 32 }, (_, index) => index % 4 === 0 ? 0.34 : 0.16);
+  const pending = message.pending_voice ? `
+    <span class="voice-player-status" role="status">${message.uploading_voice ? 'Sending voice note…' : 'Voice note not sent'}</span>
+    ${message.uploading_voice ? '' : `<button class="voice-player-retry" type="button" data-retry-pending-voice="${esc(message.id)}">Retry</button>
+      <button class="voice-player-remove" type="button" data-discard-pending-voice="${esc(message.id)}" aria-label="Remove unsent voice note">×</button>`}`
+    : '';
+  return `<div class="voice-player ${message.pending_voice ? 'is-pending' : ''}" data-voice-player data-duration="${duration}">
+    <audio class="voice-player-audio" preload="metadata" src="${esc(message.media_url)}" aria-hidden="true"></audio>
+    <button class="voice-player-toggle" type="button" data-voice-play aria-label="Play voice note">▶</button>
+    <div class="voice-player-track">
+      <div class="voice-waveform" aria-hidden="true">
+        ${bars.map((peak, index) => `<span data-voice-bar="${index}" style="--voice-peak:${peak}"></span>`).join('')}
+      </div>
+      <input class="voice-player-seek" type="range" min="0" max="1000" value="0"
+        aria-label="Seek within voice note" />
+    </div>
+    <time class="voice-player-time">${duration ? `00:00 / ${formatVoiceDuration(duration)}` : '00:00 / --:--'}</time>
+    <button class="voice-player-speed" type="button" data-voice-speed aria-label="Playback speed 1 times">1×</button>
+    ${pending}
+  </div>`;
+}
+
+function updateVoicePlayer(player) {
+  const audio = player.querySelector('.voice-player-audio');
+  const durationMs = Number.isFinite(audio.duration)
+    ? audio.duration * 1000
+    : Number(player.dataset.duration) || 0;
+  const currentMs = Number.isFinite(audio.currentTime) ? audio.currentTime * 1000 : 0;
+  const progress = durationMs ? Math.min(1, currentMs / durationMs) : 0;
+  const seek = player.querySelector('.voice-player-seek');
+  seek.value = String(Math.round(progress * 1000));
+  const time = player.querySelector('.voice-player-time');
+  time.textContent = `${formatVoiceDuration(currentMs)} / ${durationMs ? formatVoiceDuration(durationMs) : '--:--'}`;
+  const play = player.querySelector('[data-voice-play]');
+  play.textContent = audio.paused ? '▶' : 'Ⅱ';
+  play.setAttribute('aria-label', audio.paused ? 'Play voice note' : 'Pause voice note');
+  const speed = player.querySelector('[data-voice-speed]');
+  speed.textContent = `${audio.playbackRate}×`;
+  speed.setAttribute('aria-label', `Playback speed ${audio.playbackRate} times`);
+  for (const bar of player.querySelectorAll('[data-voice-bar]')) {
+    const threshold = (Number(bar.dataset.voiceBar) + 1) / player.querySelectorAll('[data-voice-bar]').length;
+    bar.classList.toggle('is-played', threshold <= progress);
+  }
+}
+
+function bindVoicePlayers(list, resumePlayback = null) {
+  for (const player of list.querySelectorAll('[data-voice-player]')) {
+    const audio = player.querySelector('.voice-player-audio');
+    const update = () => updateVoicePlayer(player);
+    for (const eventName of ['loadedmetadata', 'timeupdate', 'play', 'pause', 'ended', 'ratechange']) {
+      audio.addEventListener(eventName, update);
+    }
+    player.addEventListener('click', async (event) => {
+      if (event.target.closest('[data-voice-play]')) {
+        if (audio.paused) {
+          for (const other of list.querySelectorAll('.voice-player-audio')) {
+            if (other !== audio) other.pause();
+          }
+          try {
+            await audio.play();
+          } catch (error) {
+            showToast(`Could not play voice note: ${friendlyError(error)}`);
+          }
+        } else {
+          audio.pause();
+        }
+      } else if (event.target.closest('[data-voice-speed]')) {
+        const speeds = [1, 1.5, 2];
+        const nextSpeed = speeds[(speeds.indexOf(audio.playbackRate) + 1) % speeds.length];
+        audio.playbackRate = nextSpeed;
+      }
+    });
+    player.querySelector('.voice-player-seek').addEventListener('input', (event) => {
+      if (Number.isFinite(audio.duration)) {
+        audio.currentTime = (Number(event.currentTarget.value) / 1000) * audio.duration;
+      }
+    });
+    update();
+  }
+
+  if (!resumePlayback) return;
+  const player = [...list.querySelectorAll('[data-voice-player]')]
+    .find((item) => item.closest('[data-message-id]')?.dataset.messageId === resumePlayback.messageId);
+  const audio = player?.querySelector('.voice-player-audio');
+  if (!audio) return;
+  const resume = async () => {
+    if (Number.isFinite(audio.duration)) {
+      audio.currentTime = Math.min(resumePlayback.currentTime, audio.duration);
+    }
+    audio.playbackRate = resumePlayback.playbackRate;
+    try {
+      await audio.play();
+    } catch (error) {
+      showToast(`Could not resume voice note: ${friendlyError(error)}`);
+    }
+  };
+  if (audio.readyState >= 1) void resume();
+  else audio.addEventListener('loadedmetadata', () => { void resume(); }, { once: true });
 }
 
 function renderEmojiPicker(kind = 'emoji') {
@@ -1418,13 +1559,15 @@ function openProfileEditor() {
   $('profile-dialog').hidden = false;
 }
 
-async function sendChatMedia(file, voiceNote = false, caption = '', chat = state.activeChat) {
+async function sendChatMedia(file, voiceNote = false, caption = '', chat = state.activeChat, voiceMetadata = null) {
   if (!chat) return;
   validateUpload(file);
   const media = {
     type: file.type,
     name: voiceNote ? 'Voice note' : file.name,
     voiceNote,
+    voiceDurationMs: voiceMetadata?.durationMs ?? null,
+    voiceWaveform: voiceMetadata?.waveform ?? null,
   };
   const path = `${chat.chat_id}/${state.session.user.id}/${crypto.randomUUID()}.${mediaExtension(file.type)}`;
   try {
@@ -1491,20 +1634,17 @@ function renderConversation() {
           <button class="composer-tool" type="button" id="emoji-picker-toggle" aria-label="Open emoji and stickers" aria-expanded="false">☺</button>
           <div id="emoji-picker" class="emoji-picker" hidden role="dialog" aria-label="Emoji and stickers"></div>
           <button class="composer-tool" type="button" id="attach-media" aria-label="Attach media" title="Attach media">＋</button>
-          <button class="composer-tool" type="button" id="voice-note" aria-label="Record voice note" title="Record voice note">🎙</button>
+          <button class="composer-tool voice-note-control" type="button" id="voice-note"
+            aria-label="Hold to record a voice note" title="Hold to record · release to send · slide left to cancel">🎙</button>
           <div class="recording-controls" id="recording-controls" hidden>
             <span id="recording-status" class="recording-status" role="status" aria-live="polite"></span>
-            <button type="button" class="voice-note-discard" id="voice-note-discard-recording">Discard</button>
+            <div class="voice-recording-waveform" id="voice-recording-waveform" aria-hidden="true"></div>
+            <span class="voice-recording-hint">Release to send · slide left to cancel</span>
+            <button type="button" class="voice-note-discard" id="voice-note-discard-recording">Cancel</button>
           </div>
           <textarea name="body" aria-label="Message" placeholder="${type === 'group' ? 'Message or type /help for group commands…' : type === 'channel' ? 'Write a channel post…' : 'Write a message…'}" maxlength="4000" rows="1"></textarea>
           <div id="mention-suggestions" class="mention-suggestions" hidden role="listbox" aria-label="People to mention"></div>
           <button type="submit">Send</button>
-          <div class="voice-note-preview" id="voice-note-preview-controls" hidden>
-            <span id="voice-note-preview-status" class="recording-status" role="status" aria-live="polite"></span>
-            <audio id="voice-note-preview" controls preload="metadata" aria-label="Voice note preview"></audio>
-            <button type="button" class="voice-note-discard" id="voice-note-discard">Discard</button>
-            <button type="button" id="voice-note-send">Send voice note</button>
-          </div>
         ` : '<div class="channel-readonly-note">Only channel admins can publish. Subscribe to receive channel updates.</div>'}
       </form>
     </div>`;
@@ -1761,6 +1901,9 @@ async function openChat(chatId, chatOverride = null) {
     state.messages = messages;
     const byId = new Map(state.messages.map((message) => [message.id, message]));
     for (const message of state.pendingMessages) byId.set(message.id, message);
+    for (const pending of state.pendingVoiceUploads.values()) {
+      if (pending.chat.chat_id === chatId) byId.set(pending.optimistic.id, pending.optimistic);
+    }
     state.messages = [...byId.values()].sort(compareMessageOrder);
     state.pendingMessages = [];
     state.loadingMessages = false;
@@ -2371,14 +2514,111 @@ function openForwardDialog(messageId) {
   $('forward-dialog').hidden = false;
 }
 
+function renderRecordingWaveform(samples) {
+  const waveform = $('voice-recording-waveform');
+  if (!waveform) return;
+  const peaks = samples.length
+    ? buildVoiceWaveform(samples, VOICE_WAVEFORM_BARS)
+    : Array.from({ length: VOICE_WAVEFORM_BARS }, () => 0.08);
+  waveform.innerHTML = peaks
+    .map((peak) => `<span style="--voice-peak:${peak}"></span>`)
+    .join('');
+}
+
+function sampleRecordingWaveform(analyser, samples) {
+  const buffer = new Uint8Array(analyser.fftSize);
+  analyser.getByteTimeDomainData(buffer);
+  let sum = 0;
+  for (const sample of buffer) {
+    const amplitude = (sample - 128) / 128;
+    sum += amplitude * amplitude;
+  }
+  samples.push(Math.min(1, Math.sqrt(sum / buffer.length) * 4));
+  renderRecordingWaveform(samples);
+}
+
+function renderPendingVoiceMessage(message) {
+  if (state.activeChatId !== message.chat_id) return;
+  state.messages = [...state.messages.filter((item) => item.id !== message.id), message]
+    .sort(compareMessageOrder);
+  renderMessages();
+}
+
+async function uploadPendingVoice(messageId) {
+  const pending = state.pendingVoiceUploads.get(messageId);
+  if (!pending) return;
+  pending.optimistic.uploading_voice = true;
+  delete pending.optimistic.upload_error;
+  renderPendingVoiceMessage(pending.optimistic);
+
+  let uploadedPath = null;
+  try {
+    validateUpload(pending.file);
+    const path = `${pending.chat.chat_id}/${state.session.user.id}/${crypto.randomUUID()}.${mediaExtension(pending.file.type)}`;
+    uploadedPath = await uploadMedia('chat-media', path, pending.file, pending.file.type);
+    const media = {
+      path: uploadedPath,
+      type: pending.file.type,
+      name: 'Voice note',
+      voiceNote: true,
+      voiceDurationMs: pending.metadata.durationMs,
+      voiceWaveform: pending.metadata.waveform,
+    };
+    await sendMessage(pending.chat.chat_id, state.session.user.id, '', media);
+  } catch (error) {
+    if (uploadedPath) {
+      try {
+        await removeMedia('chat-media', uploadedPath);
+      } catch (cleanupError) {
+        console.error('Could not clean up an incomplete voice-note upload.', cleanupError);
+      }
+    }
+    pending.optimistic.uploading_voice = false;
+    pending.optimistic.upload_error = friendlyError(error);
+    renderPendingVoiceMessage(pending.optimistic);
+    showToast(`Could not send voice note: ${friendlyError(error)}. Retry is available in the message.`);
+    return;
+  }
+
+  state.pendingVoiceUploads.delete(messageId);
+  URL.revokeObjectURL(pending.optimistic.media_url);
+  if (state.activeChatId === pending.chat.chat_id) {
+    try {
+      const saved = await hydrateMessages(await listMessages(pending.chat.chat_id));
+      const byId = new Map(saved.map((message) => [message.id, message]));
+      for (const queued of state.pendingVoiceUploads.values()) {
+        if (queued.chat.chat_id === pending.chat.chat_id) byId.set(queued.optimistic.id, queued.optimistic);
+      }
+      state.messages = [...byId.values()].sort(compareMessageOrder);
+      renderMessages();
+    } catch (error) {
+      showToast(`Voice note was sent, but the conversation could not refresh: ${friendlyError(error)}`);
+    }
+  }
+  try {
+    await refreshChats();
+  } catch (error) {
+    showToast(`Voice note was sent, but the chat list could not refresh: ${friendlyError(error)}`);
+  }
+}
+
+function discardPendingVoice(messageId) {
+  const pending = state.pendingVoiceUploads.get(messageId);
+  if (!pending || pending.optimistic.uploading_voice) return;
+  state.pendingVoiceUploads.delete(messageId);
+  URL.revokeObjectURL(pending.optimistic.media_url);
+  state.messages = state.messages.filter((message) => message.id !== messageId);
+  if (state.activeChatId === pending.chat.chat_id) renderMessages();
+}
+
 async function toggleRecording() {
   const button = $('voice-note');
   if (state.voiceRecorder?.state === 'recording') {
-    if (button) button.disabled = true;
+    if (state.voiceHold) state.voiceHold.released = true;
     state.voiceRecorder.stop();
     return;
   }
-  if (state.voiceRecorder) return;
+  if (state.voiceRecorder || state.voiceStarting) return;
   const recordingChat = state.activeChat;
   if (!recordingChat) return;
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
@@ -2386,19 +2626,39 @@ async function toggleRecording() {
     return;
   }
   if (button) button.disabled = true;
+  state.voiceStarting = true;
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    if (state.activeChatId !== recordingChat.chat_id) {
+    if (state.activeChatId !== recordingChat.chat_id || state.voiceHold?.cancelled) {
       stream.getTracks().forEach((track) => track.stop());
+      state.voiceHold = null;
       return;
     }
+    const AudioContextClass = window.AudioContext ?? window.webkitAudioContext;
+    if (!AudioContextClass) throw new Error('Live voice waveforms are not supported in this browser.');
+    const audioContext = new AudioContextClass();
+    state.voiceAudioContext = audioContext;
+    await audioContext.resume();
+    if (state.activeChatId !== recordingChat.chat_id || state.voiceHold?.cancelled) {
+      stream.getTracks().forEach((track) => track.stop());
+      if (audioContext.state !== 'closed') await audioContext.close();
+      if (state.voiceAudioContext === audioContext) state.voiceAudioContext = null;
+      state.voiceHold = null;
+      return;
+    }
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 256;
+    audioContext.createMediaStreamSource(stream).connect(analyser);
     const preferredType = ['audio/webm', 'audio/mp4', 'audio/ogg']
       .find((type) => MediaRecorder.isTypeSupported(type));
     const recorder = new MediaRecorder(stream, preferredType ? { mimeType: preferredType } : undefined);
     state.voiceRecorder = recorder;
     state.voiceStream = stream;
+    state.voiceAnalyser = analyser;
     const recordedChunks = [];
+    const samples = [];
+    state.voiceSamples = samples;
     const startedAt = Date.now();
     recorder.addEventListener('dataavailable', (event) => {
       if (event.data.size) recordedChunks.push(event.data);
@@ -2406,113 +2666,161 @@ async function toggleRecording() {
     recorder.addEventListener('stop', async () => {
       if (state.voiceRecorder !== recorder) return;
       clearInterval(timer);
+      clearInterval(waveformTimer);
       if (state.voiceTimer === timer) state.voiceTimer = null;
+      if (state.voiceWaveformTimer === waveformTimer) state.voiceWaveformTimer = null;
       stream.getTracks().forEach((track) => track.stop());
       state.voiceStream = null;
       state.voiceRecorder = null;
+      state.voiceAnalyser = null;
+      if (audioContext.state !== 'closed') {
+        try {
+          await audioContext.close();
+        } catch (error) {
+          console.error('Could not close voice recording audio context.', error);
+        }
+      }
+      if (state.voiceAudioContext === audioContext) state.voiceAudioContext = null;
+      const cancelled = state.voiceHold?.cancelled ?? false;
+      const released = state.voiceHold?.released ?? false;
+      state.voiceHold = null;
       if (button) {
         button.textContent = '🎙';
-        button.setAttribute('aria-label', 'Record voice note');
-        button.title = 'Record voice note';
+        button.setAttribute('aria-label', 'Hold to record a voice note');
+        button.title = 'Hold to record · release to send · slide left to cancel';
         button.disabled = false;
       }
       const recordingControls = $('recording-controls');
       if (recordingControls) recordingControls.hidden = true;
+      if (cancelled || !released) return;
       const type = (recorder.mimeType || 'audio/webm').split(';', 1)[0];
       const blob = new Blob(recordedChunks, { type });
       if (!blob.size) return;
       const file = new File([blob], `voice-note.${mediaExtension(type) ?? 'webm'}`, { type });
-      state.voiceFile = file;
-      state.voiceChat = recordingChat;
-      state.voicePreviewUrl = URL.createObjectURL(blob);
-      const preview = $('voice-note-preview');
-      const previewControls = $('voice-note-preview-controls');
-      const previewStatus = $('voice-note-preview-status');
-      if (preview) preview.src = state.voicePreviewUrl;
-      if (previewControls && previewStatus) {
-        previewControls.hidden = false;
-        previewStatus.textContent = `Preview voice note · ${formatVoiceDuration(Date.now() - startedAt)}`;
+      let waveform;
+      try {
+        waveform = buildVoiceWaveform(samples);
+      } catch (error) {
+        showToast(`Could not prepare voice-note waveform: ${friendlyError(error)}`);
+        return;
       }
+      const durationMs = Math.max(1, Math.min(300000, Date.now() - startedAt));
+      const optimisticId = `pending-voice-${crypto.randomUUID()}`;
+      const optimistic = {
+        id: optimisticId,
+        chat_id: recordingChat.chat_id,
+        sender_id: state.session.user.id,
+        sender: {
+          display_name: state.profile.display_name,
+          username: state.profile.username,
+          avatar_path: state.profile.avatar_path,
+        },
+        body: '',
+        created_at: new Date().toISOString(),
+        media_type: type,
+        file_name: 'Voice note',
+        voice_note: true,
+        voice_duration_ms: durationMs,
+        voice_waveform: waveform,
+        media_url: URL.createObjectURL(blob),
+        pending_voice: true,
+      };
+      state.pendingVoiceUploads.set(optimisticId, {
+        file,
+        chat: recordingChat,
+        metadata: { durationMs, waveform },
+        optimistic,
+      });
+      renderPendingVoiceMessage(optimistic);
+      void uploadPendingVoice(optimisticId);
     }, { once: true });
-    recorder.start(500);
+    recorder.start(250);
     if (button) {
       button.textContent = '■';
-      button.setAttribute('aria-label', 'Stop voice recording');
-      button.title = 'Stop recording';
+      button.setAttribute('aria-label', 'Recording; release to send or slide left to cancel');
+      button.title = 'Release to send · slide left to cancel';
     }
     const recordingControls = $('recording-controls');
     const recordingStatus = $('recording-status');
     if (recordingControls && recordingStatus) {
       recordingControls.hidden = false;
-      recordingStatus.textContent = 'Recording · 00:00 · tap ■ to stop (max 5 min)';
+      recordingStatus.textContent = 'Recording · 00:00';
     }
     const timer = setInterval(() => {
       if (recorder.state !== 'recording') return;
       const elapsed = Date.now() - startedAt;
       if (recordingStatus) {
-        recordingStatus.textContent = `Recording · ${formatVoiceDuration(elapsed)} · tap ■ to stop (max 5 min)`;
+        recordingStatus.textContent = `Recording · ${formatVoiceDuration(elapsed)}`;
       }
       if (elapsed >= 5 * 60 * 1000) {
+        if (state.voiceHold) state.voiceHold.released = true;
         recorder.stop();
-        showToast('Voice note reached the 5-minute limit. Preview it before sending.');
+        showToast('Voice note reached the 5-minute limit and is being sent.');
       }
     }, 1000);
+    const waveformTimer = setInterval(() => {
+      if (recorder.state === 'recording') sampleRecordingWaveform(analyser, samples);
+    }, 100);
     state.voiceTimer = timer;
+    state.voiceWaveformTimer = waveformTimer;
+    renderRecordingWaveform(samples);
+    if (state.voiceHold?.released || state.voiceHold?.cancelled) recorder.stop();
   } catch (error) {
     stream?.getTracks().forEach((track) => track.stop());
+    if (state.voiceAudioContext && state.voiceAudioContext.state !== 'closed') {
+      try {
+        await state.voiceAudioContext.close();
+      } catch (closeError) {
+        console.error('Could not close voice recording audio context.', closeError);
+      }
+    }
+    state.voiceAudioContext = null;
     state.voiceStream = null;
     state.voiceRecorder = null;
+    state.voiceHold = null;
     const recordingControls = $('recording-controls');
     if (recordingControls) recordingControls.hidden = true;
     if (button) {
       button.textContent = '🎙';
-      button.setAttribute('aria-label', 'Record voice note');
-      button.title = 'Record voice note';
+      button.setAttribute('aria-label', 'Hold to record a voice note');
+      button.title = 'Hold to record · release to send · slide left to cancel';
     }
     showToast(`Could not start voice recording: ${friendlyError(error)}`);
   } finally {
+    state.voiceStarting = false;
     if (button) button.disabled = false;
   }
 }
 
-function formatVoiceDuration(milliseconds) {
-  const totalSeconds = Math.floor(milliseconds / 1000);
-  const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
-  const seconds = (totalSeconds % 60).toString().padStart(2, '0');
-  return `${minutes}:${seconds}`;
-}
-
-function discardVoiceNote() {
+function cancelVoiceRecording() {
+  if (state.voiceHold) {
+    state.voiceHold.cancelled = true;
+    state.voiceHold.released = true;
+  }
   clearInterval(state.voiceTimer);
+  clearInterval(state.voiceWaveformTimer);
   state.voiceTimer = null;
+  state.voiceWaveformTimer = null;
   const recorder = state.voiceRecorder;
   if (recorder?.state === 'recording') recorder.stop();
-  state.voiceRecorder = null;
-  state.voiceStream?.getTracks().forEach((track) => track.stop());
-  state.voiceStream = null;
-  state.voiceFile = null;
-  state.voiceChat = null;
-  if (state.voicePreviewUrl) URL.revokeObjectURL(state.voicePreviewUrl);
-  state.voicePreviewUrl = null;
-  const preview = $('voice-note-preview');
-  if (preview) {
-    preview.pause();
-    preview.removeAttribute('src');
-    preview.load();
+  else {
+    state.voiceStream?.getTracks().forEach((track) => track.stop());
+    state.voiceStream = null;
+    if (!state.voiceStarting) state.voiceHold = null;
+    state.voiceRecorder = null;
   }
-  const recordingControls = $('recording-controls');
-  if (recordingControls) recordingControls.hidden = true;
-  const previewControls = $('voice-note-preview-controls');
-  if (previewControls) previewControls.hidden = true;
-  const recordingStatus = $('recording-status');
-  if (recordingStatus) recordingStatus.textContent = '';
-  const previewStatus = $('voice-note-preview-status');
-  if (previewStatus) previewStatus.textContent = '';
+  if (state.voiceAudioContext && state.voiceAudioContext.state !== 'closed') {
+    void state.voiceAudioContext.close().catch((error) => console.error('Could not close voice recording audio context.', error));
+  }
+  state.voiceAudioContext = null;
+  state.voiceAnalyser = null;
+  const controls = $('recording-controls');
+  if (controls) controls.hidden = true;
   const button = $('voice-note');
   if (button) {
     button.textContent = '🎙';
-    button.setAttribute('aria-label', 'Record voice note');
-    button.title = 'Record voice note';
+    button.setAttribute('aria-label', 'Hold to record a voice note');
+    button.title = 'Hold to record · release to send · slide left to cancel';
     button.disabled = false;
   }
 }
@@ -3520,29 +3828,63 @@ function wire() {
       $('chat-media-input').click();
       return;
     }
-    if (event.target.closest('#voice-note-discard-recording, #voice-note-discard')) {
-      discardVoiceNote();
+    if (event.target.closest('#voice-note-discard-recording')) {
+      cancelVoiceRecording();
       return;
     }
-    if (event.target.closest('#voice-note-send')) {
-      const sendButton = $('voice-note-send');
-      if (!state.voiceFile || !state.voiceChat) return;
-      sendButton.disabled = true;
-      try {
-        await sendChatMedia(state.voiceFile, true, '', state.voiceChat);
-        discardVoiceNote();
-        showToast('Voice note sent.');
-      } catch (error) {
-        showToast(`Could not send voice note: ${friendlyError(error)}`);
-      } finally {
-        sendButton.disabled = false;
+    const retryVoice = event.target.closest('[data-retry-pending-voice]');
+    if (retryVoice) {
+      await uploadPendingVoice(retryVoice.dataset.retryPendingVoice);
+      return;
+    }
+    const removePendingVoice = event.target.closest('[data-discard-pending-voice]');
+    if (removePendingVoice) {
+      discardPendingVoice(removePendingVoice.dataset.discardPendingVoice);
+      return;
+    }
+    if (event.target.closest('#voice-note') && event.detail === 0) {
+      if (!state.voiceRecorder) {
+        state.voiceHold = { released: false, cancelled: false, keyboard: true };
       }
-      return;
-    }
-    if (event.target.closest('#voice-note')) {
       await toggleRecording();
       return;
     }
+  });
+
+  $('conversation').addEventListener('pointerdown', (event) => {
+    const button = event.target.closest('#voice-note');
+    if (!button || event.button !== 0 || state.voiceRecorder) return;
+    event.preventDefault();
+    button.setPointerCapture?.(event.pointerId);
+    state.voiceHold = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      released: false,
+      cancelled: false,
+    };
+    void toggleRecording();
+  });
+  document.addEventListener('pointermove', (event) => {
+    const hold = state.voiceHold;
+    if (!hold || hold.keyboard || hold.pointerId !== event.pointerId || hold.released) return;
+    if (event.clientX <= hold.startX - 64) {
+      hold.cancelled = true;
+      hold.released = true;
+      if (state.voiceRecorder?.state === 'recording') state.voiceRecorder.stop();
+    }
+  });
+  document.addEventListener('pointerup', (event) => {
+    const hold = state.voiceHold;
+    if (!hold || hold.keyboard || hold.pointerId !== event.pointerId) return;
+    hold.released = true;
+    if (state.voiceRecorder?.state === 'recording') state.voiceRecorder.stop();
+  });
+  document.addEventListener('pointercancel', (event) => {
+    const hold = state.voiceHold;
+    if (!hold || hold.keyboard || hold.pointerId !== event.pointerId) return;
+    hold.cancelled = true;
+    hold.released = true;
+    if (state.voiceRecorder?.state === 'recording') state.voiceRecorder.stop();
   });
 
   $('chat-media-input').addEventListener('change', async (event) => {

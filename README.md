@@ -80,7 +80,9 @@ action menu, by swiping right on mobile, or with the desktop reply shortcut;
 quote previews jump to the original message and show “Message deleted” when it
 was removed. Profile photos, chat attachments, and status
 media are limited to 25 MB per file. Status updates expire after 24 hours;
-voice notes can be previewed, discarded, or sent and stop recording after five minutes.
+voice notes can be recorded by holding the microphone, sent on release, or
+cancelled by sliding left. Their waveform, duration, scrubbing, and 1×/1.5×/2×
+playback speed are stored with each message; failed sends keep a retry action.
 The composer includes searchable-accessible emoji and sticker tabs; selected
 stickers render as large emoji-style messages without external asset packs.
 Message URLs render as local domain cards without fetching remote metadata or
@@ -131,7 +133,8 @@ can access.
    `db/supabase/012_mark_chat_unread.sql`, and
    `db/supabase/013_mentions_notifications.sql`,
    `db/supabase/014_chat_pin_limit.sql`, and
-   `db/supabase/015_unread_behavior.sql` in order in its SQL Editor. To roll
+   `db/supabase/015_unread_behavior.sql`, and
+   `db/supabase/016_voice_note_metadata.sql` in order in its SQL Editor. To roll
    back message replies, run `db/supabase/008_message_replies.down.sql`; to
    roll back reaction scoping, run
    `db/supabase/007_chat_reaction_scoping.down.sql`; to roll back read receipts
@@ -143,7 +146,9 @@ can access.
    `db/supabase/012_mark_chat_unread.down.sql`; mention notifications can be
    removed with `db/supabase/013_mentions_notifications.down.sql`; the pin
    limit and unread behavior can be rolled back with the corresponding
-   `014_chat_pin_limit.down.sql` and `015_unread_behavior.down.sql` files. The
+   `014_chat_pin_limit.down.sql` and `015_unread_behavior.down.sql` files.
+   Voice-note metadata can be removed with
+   `db/supabase/016_voice_note_metadata.down.sql`. The
    migrations create the chat tables, secure profile search and direct-chat
    RPCs, profile trigger, row-level security policies, group roles/admin
    commands, message reactions, invite flows, channels, contact-only statuses,
@@ -175,7 +180,7 @@ can access.
 6. Use **New group** to create a group. Share its invite link from group details;
    admins can type `/help` in a group conversation to see available commands.
 7. Test media, status, and voice-note flows with files under 25 MB. Apply all
-   fifteen SQL migrations before testing channels, group/channel settings,
+   sixteen SQL migrations before testing channels, group/channel settings,
    profile photos, statuses, message media, and replies.
 8. In two accounts, open the same direct chat. Scroll the recipient to the
    bottom to send a read receipt; confirm the sender sees a grey sent tick turn

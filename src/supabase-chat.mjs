@@ -137,7 +137,7 @@ export async function listMyMentions() {
   return data ?? [];
 }
 
-const MESSAGE_PROJECTION = 'id, chat_id, sender_id, body, created_at, media_path, media_type, file_name, voice_note, edited_at, deleted_at, forwarded_from, reply_to_id, sender:profiles!messages_sender_id_fkey(display_name, username, avatar_path)';
+const MESSAGE_PROJECTION = 'id, chat_id, sender_id, body, created_at, media_path, media_type, file_name, voice_note, voice_duration_ms, voice_waveform, edited_at, deleted_at, forwarded_from, reply_to_id, sender:profiles!messages_sender_id_fkey(display_name, username, avatar_path)';
 
 async function attachReplyTargets(messages, chatId) {
   const replyIds = [...new Set(messages.map((message) => message.reply_to_id).filter(Boolean))];
@@ -243,6 +243,8 @@ export async function sendMessage(chatId, senderId, body, media = null, replyToI
       media_type: media?.type ?? null,
       file_name: media?.name ?? null,
       voice_note: Boolean(media?.voiceNote),
+      voice_duration_ms: media?.voiceDurationMs ?? null,
+      voice_waveform: media?.voiceWaveform ?? null,
       reply_to_id: replyToId,
     })
     .select(MESSAGE_PROJECTION)

@@ -150,6 +150,14 @@ test(
         new URL('../db/supabase/013_mentions_notifications.down.sql', import.meta.url),
         'utf8',
       );
+      const voiceNoteMigration = await readFile(
+        new URL('../db/supabase/016_voice_note_metadata.sql', import.meta.url),
+        'utf8',
+      );
+      const voiceNoteDownMigration = await readFile(
+        new URL('../db/supabase/016_voice_note_metadata.down.sql', import.meta.url),
+        'utf8',
+      );
       const publicationSetup = migration.lastIndexOf('\ndo $$') + 1;
       assert.ok(publicationSetup > 1, 'migration should configure Realtime publication');
       await db.exec(migration.slice(0, publicationSetup));
@@ -201,6 +209,11 @@ test(
       assert.match(mentionsDownMigration, /drop table if exists public\.message_mentions/i);
       await db.exec(mentionsMigration.slice(0, mentionsPublicationSetup));
       await db.exec(mentionsMigration.slice(0, mentionsPublicationSetup));
+      await db.exec(voiceNoteMigration);
+      await db.exec(voiceNoteMigration);
+      assert.match(voiceNoteMigration, /voice_duration_ms integer/i);
+      assert.match(voiceNoteMigration, /voice_waveform jsonb/i);
+      assert.match(voiceNoteMigration, /messages_voice_note_metadata_check/i);
 
       const userA = '00000000-0000-4000-8000-000000000001';
       const userB = '00000000-0000-4000-8000-000000000002';
@@ -522,6 +535,28 @@ test(
          ) values ($1, $2, '', $3, 'image/png', 'image.png')
          returning id`,
         [chatId, userA, `${chatId}/${userA}/image.png`],
+      );
+      const waveform = Array.from({ length: 48 }, (_, index) => (index + 1) / 48);
+      const { rows: voiceMessage } = await db.query(
+        `insert into public.messages (
+           chat_id, sender_id, body, media_path, media_type, file_name,
+           voice_note, voice_duration_ms, voice_waveform
+         ) values ($1, $2, '', $3, 'audio/webm', 'Voice note', true, 4321, $4)
+         returning voice_note, voice_duration_ms, voice_waveform`,
+        [chatId, userA, `${chatId}/${userA}/voice.webm`, JSON.stringify(waveform)],
+      );
+      assert.equal(voiceMessage[0].voice_note, true);
+      assert.equal(voiceMessage[0].voice_duration_ms, 4321);
+      assert.deepEqual(voiceMessage[0].voice_waveform, waveform);
+      await assert.rejects(
+        db.query(
+          `insert into public.messages (
+             chat_id, sender_id, body, media_path, media_type, voice_note,
+               file_name, voice_duration_ms, voice_waveform
+             ) values ($1, $2, '', $3, 'audio/webm', true, 'Voice note', 300001, $4)`,
+          [chatId, userA, `${chatId}/${userA}/invalid.webm`, JSON.stringify(waveform)],
+        ),
+        /messages_voice_note_metadata_check/i,
       );
       await db.query(
         `insert into storage.objects (bucket_id, name) values ('chat-media', $1)`,
@@ -873,7 +908,7 @@ test(
       );
       assert.deepEqual(
         visibleToMember.map((row) => row.body).sort(),
-        ['', '', 'Edited message', 'Hello @sam_two from Alex', 'Reply to Alex'],
+        ['', '', '', 'Edited message', 'Hello @sam_two from Alex', 'Reply to Alex'],
       );
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [outsider]);
       await assert.rejects(
@@ -1154,6 +1189,11 @@ test(
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
 
       await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [outsider]);
+      const { rows: hiddenVoiceMessage } = await db.query(
+        `select id from public.messages where id = $1`,
+        [voiceMessage[0].id],
+      );
+      assert.deepEqual(hiddenVoiceMessage, [], 'voice-note metadata stays behind message membership RLS');
       const { rows: reactionsHiddenFromOutsider } = await db.query(
         `select message_id from public.chat_reactions where chat_id = $1`,
         [groupId],
@@ -1194,6 +1234,14 @@ test(
         /row-level security|not a member/i,
       );
       await db.exec('reset role');
+      await db.exec(voiceNoteDownMigration);
+      await db.exec(voiceNoteDownMigration);
+      const { rows: removedVoiceColumns } = await db.query(
+        `select column_name from information_schema.columns
+         where table_schema = 'public' and table_name = 'messages'
+           and column_name in ('voice_duration_ms', 'voice_waveform')`,
+      );
+      assert.deepEqual(removedVoiceColumns, []);
       await db.exec(messageSearchDownMigration);
       await db.exec(messageSearchDownMigration);
       const { rows: removedMessageSearch } = await db.query(
