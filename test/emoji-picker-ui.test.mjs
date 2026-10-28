@@ -24,6 +24,8 @@ test('composer picker provides emoji recents, original stickers, and Tenor GIF s
   assert.match(app, /composer\.setRangeText\(emoji, start, end, 'end'\)/);
   assert.match(app, /state\.emojiSelection\?\.start \?\? composer\.selectionStart/);
   assert.match(app, /added to your message\. Press Send when ready\./);
+  assert.match(app, /const clickPath = event\.composedPath\(\)/);
+  assert.match(app, /!clickPath\.includes\(emojiPicker\)/);
   const emojiSelectionHandler = app.split('const emojiChoice = event.target.closest(\'[data-insert-emoji]\');')[1]
     ?.split('const stickerChoice = event.target.closest(\'[data-insert-sticker]\');')[0];
   const stickerSelectionHandler = app.split('const stickerChoice = event.target.closest(\'[data-insert-sticker]\');')[1]

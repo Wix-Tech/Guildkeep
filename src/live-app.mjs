@@ -3668,8 +3668,10 @@ function wire() {
   });
   document.addEventListener('click', async (event) => {
     const emojiPicker = $('emoji-picker');
+    const clickPath = event.composedPath();
     if (emojiPicker && !emojiPicker.hidden
-      && !event.target.closest('#emoji-picker, #emoji-picker-toggle')) {
+      && !clickPath.includes(emojiPicker)
+      && !clickPath.includes($('emoji-picker-toggle'))) {
       emojiPicker.hidden = true;
       $('emoji-picker-toggle')?.setAttribute('aria-expanded', 'false');
     }
