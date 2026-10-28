@@ -186,6 +186,7 @@ const state = {
   selectedMessageId: null,
   replyingTo: null,
   hoveredMessageId: null,
+  lastSentMessageId: null,
   messagePressTimer: null,
   voiceRecorder: null,
   voiceTimer: null,
@@ -1311,7 +1312,7 @@ function renderMessages() {
         return `${unreadDivider}<div class="message ${own ? 'outgoing' : ''} is-deleted" data-message-id="${esc(message.id)}"><em>Message deleted</em></div>`;
       }
       return `
-        ${unreadDivider}<div class="message ${own ? 'outgoing' : ''} ${sticker ? 'is-sticker' : ''} ${message.pending_voice ? 'is-pending-voice' : ''}" data-message-id="${esc(message.id)}" tabindex="0">
+        ${unreadDivider}<div class="message ${own ? 'outgoing' : ''} ${sticker ? 'is-sticker' : ''} ${message.pending_voice ? 'is-pending-voice' : ''}${own && message.id === state.lastSentMessageId ? ' is-sending' : ''}" data-message-id="${esc(message.id)}" tabindex="0">
           <div class="message-quick-reactions" aria-label="Quick reactions">
             ${['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji) => `<button type="button"
               data-quick-reaction="${esc(emoji)}" data-reaction-message="${esc(message.id)}"
@@ -1350,6 +1351,11 @@ function renderMessages() {
         </div>`;
     })
     .join('');
+  if (state.lastSentMessageId) {
+    const sentElement = list.querySelector(`.message[data-message-id="${CSS.escape(state.lastSentMessageId)}"]`);
+    sentElement?.classList.remove('is-sending');
+    state.lastSentMessageId = null;
+  }
   bindVoicePlayers(list, playback);
   list.scrollTop = wasAtBottom ? list.scrollHeight : previousScrollTop;
   if (wasAtBottom && state.readAckArmed) void markChatReadIfAtBottom();
@@ -2954,6 +2960,7 @@ async function handleIncomingMessage(message) {
     if (state.activeChatId !== message.chat_id) return;
     if (state.messages.some((item) => item.id === message.id)) return;
     state.messages.push({ ...message, sender });
+    if (message.sender_id === state.session.user.id) state.lastSentMessageId = message.id;
     renderMessages();
     await refreshChats();
   } catch (error) {
@@ -4920,6 +4927,7 @@ function wire() {
       }
       if (state.activeChatId === chatId && !state.messages.some((item) => item.id === message.id)) {
         state.messages.push({ ...message, sender: state.profile });
+        state.lastSentMessageId = message.id;
         state.replyingTo = null;
         updateReplyStrip();
         renderMessages();
