@@ -1,6 +1,27 @@
 import './live-styles.css';
 import brandLogoUrl from '../brand/logo.svg';
+import helloStickerUrl from './stickers/hello.svg';
+import heartStickerUrl from './stickers/heart.svg';
+import laughStickerUrl from './stickers/laugh.svg';
+import sparkleStickerUrl from './stickers/sparkle.svg';
+import waveStickerUrl from './stickers/wave.svg';
+import fireStickerUrl from './stickers/fire.svg';
+import catStickerUrl from './stickers/cat.svg';
+import partyStickerUrl from './stickers/party.svg';
+import {
+  addRecentEmoji,
+  createStickerToken,
+  normalizeRecentEmojis,
+  RECENT_EMOJI_LIMIT,
+  RECENT_EMOJI_STORAGE_KEY,
+  splitPickerContent,
+} from './emoji-picker.mjs';
 import { renderSafeLinks } from './safe-links.mjs';
+import {
+  createTenorGifToken,
+  normalizeTenorResults,
+  safeTenorGifUrl,
+} from './tenor-gifs.mjs';
 import { buildVoiceWaveform, formatVoiceDuration, VOICE_WAVEFORM_BARS } from './voice-notes.mjs';
 import {
   activeTypingUsers,
@@ -67,6 +88,7 @@ import {
   signIn,
   signOut,
   signUp,
+  searchTenorGifs,
   subscribeToMessages,
   subscribeToMemberships,
   toggleMessageReaction,
@@ -127,6 +149,17 @@ const state = {
   voiceSamples: [],
   pendingVoiceUploads: new Map(),
   voicePlayback: null,
+  recentEmojis: null,
+  recentEmojiStorageWarningShown: false,
+  pickerMediaDraft: null,
+  tenorSearch: {
+    sequence: 0,
+    timer: null,
+    query: '',
+    results: [],
+    loading: false,
+    error: '',
+  },
   pendingProfileAvatar: null,
   profilePreview: null,
   profilePreviewSequence: 0,
@@ -177,8 +210,138 @@ const esc = (value) =>
   );
 
 const EMOJI_OPTIONS = ['😀', '😂', '🥰', '😍', '😊', '😎', '😭', '😮', '🤔', '🙏', '👏', '👍', '👎', '❤️', '🧡', '💛', '💚', '💙', '💜', '✨', '🔥', '🎉', '💯', '✅', '🤝', '👋', '🌸', '☀️', '🍕', '☕', '🐈', '🎵'];
-const STICKER_OPTIONS = ['🥹', '😂', '🥰', '😎', '🤔', '🙌', '❤️', '🔥', '🎉', '🐈', '🌸', '💯'];
-const STICKER_EMOJIS = new Set(STICKER_OPTIONS);
+const LEGACY_STICKER_EMOJIS = new Set(['🥹', '😂', '🥰', '😎', '🤔', '🙌', '❤️', '🔥', '🎉', '🐈', '🌸', '💯']);
+const STICKER_OPTIONS = [
+  { id: 'hello', title: 'Hello', alt: 'Hello speech bubble', src: helloStickerUrl },
+  { id: 'heart', title: 'Heart', alt: 'Orange heart', src: heartStickerUrl },
+  { id: 'laugh', title: 'Laugh', alt: 'Laughing face', src: laughStickerUrl },
+  { id: 'sparkle', title: 'Sparkle', alt: 'Orange sparkle', src: sparkleStickerUrl },
+  { id: 'wave', title: 'Wave', alt: 'Waving hand', src: waveStickerUrl },
+  { id: 'fire', title: 'Fire', alt: 'Flame', src: fireStickerUrl },
+  { id: 'cat', title: 'Cat', alt: 'Orange cat', src: catStickerUrl },
+  { id: 'party', title: 'Celebrate', alt: 'Party popper', src: partyStickerUrl },
+];
+const STICKERS_BY_ID = new Map(STICKER_OPTIONS.map((sticker) => [sticker.id, sticker]));
+const PICKER_CONTENT_PATTERN = /\[\[guildkeep-(sticker|gif):([^\]]+)\]\]/g;
+
+function getStickerIdFromBody(body) {
+  const trimmed = String(body ?? '').trim();
+  const match = /^\[\[guildkeep-sticker:([a-z0-9-]+)\]\]$/.exec(trimmed);
+  return match && STICKERS_BY_ID.has(match[1]) ? match[1] : null;
+}
+
+function pickerMessageLabel(body) {
+  const stickerId = getStickerIdFromBody(body);
+  if (stickerId) return `Sticker · ${STICKERS_BY_ID.get(stickerId).title}`;
+  if (LEGACY_STICKER_EMOJIS.has(String(body ?? '').trim())) return 'Sticker';
+  return splitPickerContent(body).map((segment) => {
+    if (segment.type === 'text') return segment.value;
+    if (segment.type === 'sticker' && STICKERS_BY_ID.has(segment.value)) {
+      return `Sticker · ${STICKERS_BY_ID.get(segment.value).title}`;
+    }
+    if (segment.type === 'gif' && safeTenorGifUrl(segment.value)) return 'GIF';
+    return segment.token;
+  }).join('');
+}
+
+function renderPickerContent(body, messageId) {
+  const text = String(body ?? '');
+  let html = '';
+  let lastIndex = 0;
+  for (const match of text.matchAll(PICKER_CONTENT_PATTERN)) {
+    const precedingText = text.slice(lastIndex, match.index);
+    if (precedingText) {
+      html += state.searchJump?.messageId === messageId
+        ? highlightSearchText(precedingText, state.searchJump.term)
+        : renderSafeLinks(precedingText);
+    }
+    if (match[1] === 'sticker' && STICKERS_BY_ID.has(match[2])) {
+      const sticker = STICKERS_BY_ID.get(match[2]);
+      html += `<img class="message-sticker" src="${esc(sticker.src)}" alt="${esc(sticker.alt)}" width="120" height="120" loading="lazy" />`;
+    } else if (match[1] === 'gif' && safeTenorGifUrl(match[2])) {
+      html += `<figure class="message-gif-figure">
+        <img class="message-gif" src="${esc(safeTenorGifUrl(match[2]))}" alt="Animated GIF" loading="lazy" />
+        <figcaption><a href="https://tenor.com" target="_blank" rel="noopener noreferrer nofollow">Via Tenor</a></figcaption>
+      </figure>`;
+    } else {
+      html += esc(match[0]);
+    }
+    lastIndex = match.index + match[0].length;
+  }
+  const trailingText = text.slice(lastIndex);
+  if (trailingText || !html) {
+    html += state.searchJump?.messageId === messageId
+      ? highlightSearchText(trailingText, state.searchJump.term)
+      : renderSafeLinks(trailingText);
+  }
+  return html;
+}
+
+function isStandaloneSticker(body) {
+  return Boolean(getStickerIdFromBody(body) || LEGACY_STICKER_EMOJIS.has(String(body ?? '').trim()));
+}
+
+function reportRecentEmojiStorageError(error) {
+  console.error('Could not access recently used emojis in local storage.', error);
+  if (state.recentEmojiStorageWarningShown) return;
+  state.recentEmojiStorageWarningShown = true;
+  showToast('Recent emojis could not be saved in this browser.');
+}
+
+function loadRecentEmojis() {
+  if (state.recentEmojis) return state.recentEmojis;
+  try {
+    const stored = localStorage.getItem(RECENT_EMOJI_STORAGE_KEY);
+    state.recentEmojis = normalizeRecentEmojis(stored ? JSON.parse(stored) : [], EMOJI_OPTIONS);
+  } catch (error) {
+    state.recentEmojis = [];
+    reportRecentEmojiStorageError(error);
+  }
+  return state.recentEmojis;
+}
+
+function rememberEmoji(emoji) {
+  state.recentEmojis = addRecentEmoji(loadRecentEmojis(), emoji, EMOJI_OPTIONS);
+  try {
+    localStorage.setItem(RECENT_EMOJI_STORAGE_KEY, JSON.stringify(state.recentEmojis));
+  } catch (error) {
+    reportRecentEmojiStorageError(error);
+  }
+}
+
+function renderPickerMediaDraft() {
+  const draft = $('picker-media-draft');
+  if (!draft) return;
+  const media = state.pickerMediaDraft;
+  draft.hidden = !media;
+  if (!media) {
+    draft.innerHTML = '';
+    return;
+  }
+  const sticker = media.type === 'sticker' ? STICKERS_BY_ID.get(media.id) : null;
+  const gifUrl = media.type === 'gif' ? safeTenorGifUrl(media.gifUrl) : null;
+  if (!sticker && !gifUrl) {
+    state.pickerMediaDraft = null;
+    draft.hidden = true;
+    draft.innerHTML = '';
+    return;
+  }
+  const title = sticker?.title ?? media.title ?? 'GIF';
+  draft.innerHTML = `
+    <span class="picker-media-draft-label">${esc(title)} ready to send</span>
+    <img src="${esc(sticker?.src ?? gifUrl)}" alt="${esc(sticker?.alt ?? 'Animated GIF preview')}" />
+    <button type="button" class="picker-media-draft-remove" data-remove-picker-media aria-label="Remove ${esc(title)}">×</button>`;
+}
+
+function messageBodyWithPickerMedia(body) {
+  const text = body.trim();
+  const media = state.pickerMediaDraft;
+  if (!media) return text;
+  const token = media.type === 'sticker'
+    ? createStickerToken(media.id)
+    : createTenorGifToken(media.gifUrl);
+  return [text, token].filter(Boolean).join('\n');
+}
 
 function setStatus(element, message, isError = false) {
   element.textContent = message;
@@ -437,14 +600,14 @@ function renderChats() {
     if (state.currentView === 'groups' && type !== 'group') return false;
     if (state.currentView === 'chats' && type !== 'direct') return false;
     if (!['chats', 'groups'].includes(state.currentView)) return false;
-    const preview = chat.last_message?.body ?? '';
+    const preview = pickerMessageLabel(chat.last_message?.body);
     return `${chat.chat_name} ${preview}`.toLocaleLowerCase().includes(search);
   });
 
   const chatMarkup = chats
     .map((chat) => {
       const type = chat.chat_type ?? (chat.is_group ? 'group' : 'direct');
-      const preview = chat.last_message?.body ?? 'Start a conversation';
+      const preview = pickerMessageLabel(chat.last_message?.body) || 'Start a conversation';
       const unread = Number(chat.unread_count) || 0;
       const unreadMarker = unread
         ? chat.muted
@@ -844,7 +1007,7 @@ function renderMessages() {
       const senderName = message.sender?.display_name ??
         (own ? state.profile.display_name : state.activeChat?.chat_name ?? 'Member');
       const senderUsername = message.sender?.username ?? '';
-      const sticker = STICKER_EMOJIS.has(message.body?.trim());
+      const sticker = isStandaloneSticker(message.body);
       const replyTo = Array.isArray(message.reply_to) ? message.reply_to[0] : message.reply_to;
       const reactions = state.reactions.get(message.id) ?? [];
       const readCount = readMessageCount(
@@ -899,11 +1062,9 @@ function renderMessages() {
           ${replyTo ? `<button class="message-quote" type="button" data-scroll-to-message="${esc(replyTo.id)}"
             aria-label="Jump to reply from ${esc(replyTo.sender?.display_name ?? 'Member')}">
             <strong>${esc(replyTo.deleted_at ? 'Message deleted' : (replyTo.sender?.display_name ?? 'Message'))}</strong>
-            <span>${esc(replyTo.deleted_at ? 'Message deleted' : (replyTo.body || 'Attachment'))}</span>
+            <span>${esc(replyTo.deleted_at ? 'Message deleted' : (pickerMessageLabel(replyTo.body) || 'Attachment'))}</span>
           </button>` : ''}
-          ${message.body ? `<div class="message-text">${state.searchJump?.messageId === message.id
-            ? highlightSearchText(message.body, state.searchJump.term)
-            : renderSafeLinks(message.body)}</div>` : ''}
+          ${message.body ? `<div class="message-text">${renderPickerContent(message.body, message.id)}</div>` : ''}
           ${media}
           <span class="message-meta">${message.edited_at ? 'edited · ' : ''}${esc(formatMessageTime(message.created_at))}
             ${own && state.activeChat?.chat_type === 'direct'
@@ -932,7 +1093,7 @@ function updateReplyStrip() {
     (replyTo.sender_id === state.session?.user?.id ? state.profile?.display_name : state.activeChat?.chat_name) ??
     'Message';
   const quote = strip.querySelector('[data-reply-copy]');
-  quote.innerHTML = `<strong>Replying to ${esc(senderName)}</strong><span>${esc(replyTo.deleted_at ? 'Message deleted' : (replyTo.body || 'Attachment'))}</span>`;
+  quote.innerHTML = `<strong>Replying to ${esc(senderName)}</strong><span>${esc(replyTo.deleted_at ? 'Message deleted' : (pickerMessageLabel(replyTo.body) || 'Attachment'))}</span>`;
 }
 
 function setReplyTarget(messageId) {
@@ -1252,21 +1413,107 @@ function bindVoicePlayers(list, resumePlayback = null) {
   else audio.addEventListener('loadedmetadata', () => { void resume(); }, { once: true });
 }
 
+function renderTenorGifResults() {
+  const container = $('tenor-gif-results');
+  if (!container) return;
+  const { query, loading, error, results } = state.tenorSearch;
+  if (loading) {
+    container.innerHTML = '<p class="emoji-picker-status" role="status">Searching GIFs…</p>';
+    return;
+  }
+  if (error) {
+    container.innerHTML = `<p class="emoji-picker-status is-error" role="status">${esc(error)}</p>`;
+    return;
+  }
+  if (query.trim().length < 2) {
+    container.innerHTML = '<p class="emoji-picker-status" role="status">Enter at least 2 characters to search.</p>';
+    return;
+  }
+  const safeResults = results.filter((gif) =>
+    safeTenorGifUrl(gif.previewUrl) && safeTenorGifUrl(gif.gifUrl));
+  container.innerHTML = safeResults.length
+    ? `<div class="emoji-picker-grid gif-picker-grid" role="group" aria-label="GIF search results">
+        ${safeResults.map((gif) => `<button type="button" class="gif-picker-item"
+          data-insert-gif="${esc(gif.gifUrl)}" data-gif-title="${esc(gif.title)}"
+          aria-label="Insert GIF: ${esc(gif.title)}">
+          <img src="${esc(gif.previewUrl)}" alt="" loading="lazy" />
+        </button>`).join('')}
+      </div>`
+    : '<p class="emoji-picker-status" role="status">No GIFs found.</p>';
+}
+
+function searchTenorGifOptions(query) {
+  clearTimeout(state.tenorSearch.timer);
+  const sequence = ++state.tenorSearch.sequence;
+  state.tenorSearch.query = query;
+  state.tenorSearch.results = [];
+  state.tenorSearch.error = '';
+  if (query.trim().length < 2) {
+    state.tenorSearch.loading = false;
+    renderTenorGifResults();
+    return;
+  }
+  state.tenorSearch.loading = true;
+  renderTenorGifResults();
+  state.tenorSearch.timer = setTimeout(async () => {
+    try {
+      const results = await searchTenorGifs(query);
+      if (sequence !== state.tenorSearch.sequence) return;
+      state.tenorSearch.results = normalizeTenorResults({ results });
+      state.tenorSearch.loading = false;
+    } catch (error) {
+      if (sequence !== state.tenorSearch.sequence) return;
+      state.tenorSearch.error = `Could not search GIFs: ${friendlyError(error)}`;
+      state.tenorSearch.loading = false;
+    }
+    renderTenorGifResults();
+  }, 250);
+}
+
 function renderEmojiPicker(kind = 'emoji') {
   const picker = $('emoji-picker');
   if (!picker) return;
-  const stickers = kind === 'stickers';
-  const options = stickers ? STICKER_OPTIONS : EMOJI_OPTIONS;
-  picker.innerHTML = `
-    <div class="emoji-picker-tabs" role="tablist" aria-label="Choose emoji or stickers">
-      <button type="button" role="tab" data-emoji-picker-tab="emoji" aria-selected="${!stickers}">Emoji</button>
-      <button type="button" role="tab" data-emoji-picker-tab="stickers" aria-selected="${stickers}">Stickers</button>
+  if (!['emoji', 'stickers', 'gifs'].includes(kind)) kind = 'emoji';
+  const recent = loadRecentEmojis().slice(0, RECENT_EMOJI_LIMIT);
+  const emojiContent = `
+    <div class="emoji-picker-recent" role="group" aria-label="Recently used emojis">
+      <span>Recent</span>
+      ${recent.length
+        ? recent.map((emoji) => `<button type="button" class="emoji-picker-item"
+            data-insert-emoji="${esc(emoji)}" aria-label="Use recent emoji ${esc(emoji)}">${emoji}</button>`).join('')
+        : '<small>No recent emojis yet</small>'}
     </div>
-    <div class="emoji-picker-grid" role="group" aria-label="${stickers ? 'Stickers' : 'Emoji'}">
-      ${options.map((emoji) => `<button type="button" class="emoji-picker-item ${stickers ? 'is-sticker-option' : ''}"
-        data-insert-emoji="${esc(emoji)}" aria-label="${stickers ? 'Insert sticker ' : 'Insert emoji '}${esc(emoji)}">${emoji}</button>`).join('')}
+    <div class="emoji-picker-grid" role="group" aria-label="Emoji">
+      ${EMOJI_OPTIONS.map((emoji) => `<button type="button" class="emoji-picker-item"
+        data-insert-emoji="${esc(emoji)}" aria-label="Insert emoji ${esc(emoji)}">${emoji}</button>`).join('')}
     </div>`;
+  const stickerContent = `
+    <div class="emoji-picker-grid sticker-picker-grid" role="group" aria-label="Stickers">
+      ${STICKER_OPTIONS.map((sticker) => `<button type="button" class="emoji-picker-item is-sticker-option"
+        data-insert-sticker="${esc(sticker.id)}" aria-label="Insert sticker ${esc(sticker.title)}"
+        title="${esc(sticker.title)}"><img src="${esc(sticker.src)}" alt="" loading="lazy" /></button>`).join('')}
+    </div>`;
+  const gifContent = `
+    <label class="gif-picker-search">Search Tenor GIFs
+      <input id="tenor-gif-search" type="search" maxlength="80" autocomplete="off"
+        value="${esc(state.tenorSearch.query)}" placeholder="Search Tenor" />
+    </label>
+    <div id="tenor-gif-results" aria-live="polite"></div>
+    <p class="tenor-attribution"><a href="https://tenor.com" target="_blank"
+      rel="noopener noreferrer nofollow">Powered By Tenor</a></p>`;
+  const content = kind === 'emoji' ? emojiContent : kind === 'stickers' ? stickerContent : gifContent;
+  picker.innerHTML = `
+    <div class="emoji-picker-tabs" role="tablist" aria-label="Choose emoji, stickers, or GIFs">
+      <button type="button" role="tab" data-emoji-picker-tab="emoji" aria-selected="${kind === 'emoji'}"
+        aria-controls="emoji-picker-content">Emoji</button>
+      <button type="button" role="tab" data-emoji-picker-tab="stickers" aria-selected="${kind === 'stickers'}"
+        aria-controls="emoji-picker-content">Stickers</button>
+      <button type="button" role="tab" data-emoji-picker-tab="gifs" aria-selected="${kind === 'gifs'}"
+        aria-controls="emoji-picker-content">GIFs</button>
+    </div>
+    <div id="emoji-picker-content">${content}</div>`;
   picker.hidden = false;
+  if (kind === 'gifs') renderTenorGifResults();
 }
 
 function insertComposerEmoji(emoji) {
@@ -1631,6 +1878,7 @@ function renderConversation() {
             <span data-reply-copy></span>
             <button type="button" class="reply-cancel" data-cancel-reply aria-label="Cancel reply">×</button>
           </div>
+          <div id="picker-media-draft" class="picker-media-draft" hidden></div>
           <button class="composer-tool" type="button" id="emoji-picker-toggle" aria-label="Open emoji and stickers" aria-expanded="false">☺</button>
           <div id="emoji-picker" class="emoji-picker" hidden role="dialog" aria-label="Emoji and stickers"></div>
           <button class="composer-tool" type="button" id="attach-media" aria-label="Attach media" title="Attach media">＋</button>
@@ -1648,6 +1896,7 @@ function renderConversation() {
         ` : '<div class="channel-readonly-note">Only channel admins can publish. Subscribe to receive channel updates.</div>'}
       </form>
     </div>`;
+  renderPickerMediaDraft();
   updateReplyStrip();
   renderMessages();
   renderPinnedMessages();
@@ -1813,6 +2062,16 @@ async function openChat(chatId, chatOverride = null) {
   state.activeChatId = chatId;
   state.activeChat = chat;
   state.replyingTo = null;
+  state.pickerMediaDraft = null;
+  clearTimeout(state.tenorSearch.timer);
+  state.tenorSearch = {
+    sequence: state.tenorSearch.sequence + 1,
+    timer: null,
+    query: '',
+    results: [],
+    loading: false,
+    error: '',
+  };
   state.hoveredMessageId = null;
   state.messages = [];
   state.pendingMessages = [];
@@ -2858,6 +3117,10 @@ async function forwardSelectedMessage(targetChatId) {
 function wire() {
   let messagePressOrigin = null;
   $('conversation').addEventListener('input', (event) => {
+    if (event.target.id === 'tenor-gif-search') {
+      searchTenorGifOptions(event.target.value);
+      return;
+    }
     if (!event.target.matches('#message-form textarea')) return;
     renderMentionSuggestions(event.target);
     if (!state.chatLive || !['direct', 'group'].includes(chatType())) return;
@@ -3760,23 +4023,31 @@ function wire() {
     if (event.target.id !== 'message-form') return;
     event.preventDefault();
     const input = event.target.elements.body;
-    const body = input.value.trim();
+    const body = messageBodyWithPickerMedia(input.value);
     if (!body || !state.activeChatId) return;
+    if (body.length > 4000) {
+      showToast('Message text is too long to include the selected sticker or GIF.');
+      return;
+    }
     const chatId = state.activeChatId;
     const senderId = state.session.user.id;
     const button = event.target.querySelector('button[type="submit"]');
     button.disabled = true;
     try {
-      if (state.activeChat?.chat_type === 'group' && body.startsWith('/')) {
+      if (!state.pickerMediaDraft && state.activeChat?.chat_type === 'group' && body.startsWith('/')) {
         await executeGroupCommand(body);
         input.value = '';
         return;
       }
       const replyToId = state.replyingTo?.id ?? null;
       const message = await sendMessage(chatId, senderId, body, null, replyToId);
+      if (state.activeChatId === chatId) {
+        input.value = '';
+        state.pickerMediaDraft = null;
+        renderPickerMediaDraft();
+      }
       if (state.activeChatId === chatId && !state.messages.some((item) => item.id === message.id)) {
         state.messages.push({ ...message, sender: state.profile });
-        input.value = '';
         state.replyingTo = null;
         updateReplyStrip();
         renderMessages();
@@ -3797,7 +4068,7 @@ function wire() {
       if (picker.hidden) {
         renderEmojiPicker();
         button.setAttribute('aria-expanded', 'true');
-        picker.querySelector('[data-insert-emoji]')?.focus();
+        picker.querySelector('[data-insert-emoji], [data-insert-sticker]')?.focus();
       } else {
         picker.hidden = true;
         button.setAttribute('aria-expanded', 'false');
@@ -3808,14 +4079,53 @@ function wire() {
     const pickerTab = event.target.closest('[data-emoji-picker-tab]');
     if (pickerTab) {
       renderEmojiPicker(pickerTab.dataset.emojiPickerTab);
-      $('emoji-picker').querySelector('[data-insert-emoji]')?.focus();
+      const picker = $('emoji-picker');
+      (pickerTab.dataset.emojiPickerTab === 'gifs'
+        ? picker.querySelector('#tenor-gif-search')
+        : picker.querySelector('[data-insert-emoji], [data-insert-sticker]'))?.focus();
       return;
     }
     const emojiChoice = event.target.closest('[data-insert-emoji]');
     if (emojiChoice) {
+      rememberEmoji(emojiChoice.dataset.insertEmoji);
       insertComposerEmoji(emojiChoice.dataset.insertEmoji);
       $('emoji-picker').hidden = true;
       $('emoji-picker-toggle').setAttribute('aria-expanded', 'false');
+      return;
+    }
+    const stickerChoice = event.target.closest('[data-insert-sticker]');
+    if (stickerChoice) {
+      const sticker = STICKERS_BY_ID.get(stickerChoice.dataset.insertSticker);
+      if (!sticker) return;
+      state.pickerMediaDraft = { type: 'sticker', id: sticker.id };
+      renderPickerMediaDraft();
+      $('emoji-picker').hidden = true;
+      $('emoji-picker-toggle').setAttribute('aria-expanded', 'false');
+      $('message-form [name="body"]')?.focus();
+      return;
+    }
+    const gifChoice = event.target.closest('[data-insert-gif]');
+    if (gifChoice) {
+      const gifUrl = safeTenorGifUrl(gifChoice.dataset.insertGif);
+      if (!gifUrl) {
+        showToast('That GIF could not be selected. Search again to choose a valid result.');
+        return;
+      }
+      state.pickerMediaDraft = {
+        type: 'gif',
+        gifUrl,
+        title: gifChoice.dataset.gifTitle ?? 'GIF',
+      };
+      renderPickerMediaDraft();
+      $('emoji-picker').hidden = true;
+      $('emoji-picker-toggle').setAttribute('aria-expanded', 'false');
+      $('message-form [name="body"]')?.focus();
+      return;
+    }
+    if (event.target.closest('[data-remove-picker-media]')) {
+      state.pickerMediaDraft = null;
+      renderPickerMediaDraft();
+      $('message-form [name="body"]')?.focus();
       return;
     }
     const readCount = event.target.closest('[data-read-count]');

@@ -30,6 +30,7 @@ product/
 ├─ src/live-styles.css     hosted chat app styles
 ├─ brand/                  Guildkeep logos, icons, and brand sheet
 ├─ db/supabase/            hosted chat schema, RLS, and RPC migrations
+├─ supabase/functions/     authenticated Edge Functions, including Tenor GIF search
 ├─ vercel.json             Vercel static build settings
 ├─ src/admin-app.mjs       the console UI
 ├─ src/admin-styles.css    console styles
@@ -83,8 +84,15 @@ media are limited to 25 MB per file. Status updates expire after 24 hours;
 voice notes can be recorded by holding the microphone, sent on release, or
 cancelled by sliding left. Their waveform, duration, scrubbing, and 1×/1.5×/2×
 playback speed are stored with each message; failed sends keep a retry action.
-The composer includes searchable-accessible emoji and sticker tabs; selected
-stickers render as large emoji-style messages without external asset packs.
+The composer has emoji, sticker, and GIF tabs. Emoji recents are stored in the
+browser; eight original, local SVG stickers render at 120 px without a message
+bubble. GIF search runs through the authenticated `tenor-search` Supabase Edge
+Function, keeps the Tenor key server-side, and loads selected GIFs from Tenor's
+CDN. Search terms are sent to Tenor; GIF search requires a `TENOR_API_KEY`
+Supabase Function secret and displays an error if the function or key is not
+configured. The picker displays Tenor's "Search Tenor" and "Powered By Tenor"
+attribution, and each shared GIF includes "Via Tenor". Never put this key in a
+`VITE_` variable or commit it.
 Message URLs render as local domain cards without fetching remote metadata or
 images. Only public-domain HTTP(S) links become clickable; unsafe/local targets
 remain plain text.
@@ -174,6 +182,11 @@ can access.
    same two `VITE_` variables to the Vercel project's environment settings.
    Configure the Supabase Auth site URL and redirect URLs to include the local
    development origin and the deployed Vercel domain.
+   For Tenor GIF search, create a Tenor API key, add it as the `TENOR_API_KEY`
+   secret under Supabase **Edge Functions → Secrets**, then deploy the function
+   with `supabase functions deploy tenor-search --project-ref <project-ref>`.
+   Do not add the Tenor key to `.env.local`, Vercel `VITE_` settings, or source
+   control. GIF search is authenticated and sends search terms to Tenor.
 5. Create two accounts using distinct usernames. Search for the other account
    in the chat list or choose **New chat**; select **Message**, then send a
    message in the conversation composer.

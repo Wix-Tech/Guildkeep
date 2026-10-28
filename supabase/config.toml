@@ -1,0 +1,4 @@
+project_id = "guildkeep"
+
+[functions.tenor-search]
+verify_jwt = true
