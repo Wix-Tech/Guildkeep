@@ -37,6 +37,19 @@ export async function signIn({ email, password }) {
   return data;
 }
 
+export async function requestPasswordReset(email) {
+  const { error } = await client().auth.resetPasswordForEmail(email, {
+    redirectTo: `${location.origin}/`,
+  });
+  if (error) throw error;
+}
+
+export async function updatePassword({ password }) {
+  const { data, error } = await client().auth.updateUser({ password });
+  if (error) throw error;
+  return data;
+}
+
 export async function signOut() {
   const { error } = await client().auth.signOut();
   if (error) throw error;

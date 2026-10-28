@@ -281,6 +281,11 @@ can access.
     badge and toast appear. Disable **Mention alerts**, send another mention,
     and confirm no badge or toast appears while the unread mention remains
     available from the bell. Reload and verify the preference persists.
+11. Test password reset: choose **Forgot password?** on the sign-in screen,
+    submit an account email, and confirm the reset email arrives. Follow the
+    reset link, choose a new password, and sign in with the new password. The
+    Supabase Auth redirect URL allow-list must include the app origin for the
+    recovery email to land back in the client.
 
 Email confirmation behavior is controlled by the Supabase Auth project settings.
 The client never contains a service-role key. Direct chat creation and message

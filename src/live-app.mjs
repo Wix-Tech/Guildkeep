@@ -103,6 +103,8 @@ import {
   signIn,
   signOut,
   signUp,
+  requestPasswordReset,
+  updatePassword,
   subscribeToMessages,
   subscribeToMemberships,
   toggleMessageReaction,
@@ -155,6 +157,7 @@ const state = {
   unsubscribeMemberships: null,
   unsubscribeReactions: null,
   authMode: 'signin',
+  passwordRecoveryActive: false,
   loadingMessages: false,
   initializingUserId: null,
   peopleSearchSequence: 0,
@@ -521,23 +524,48 @@ function friendlyError(error) {
   if (/invalid login credentials/i.test(message)) return 'Email or password is incorrect.';
   if (/user already registered/i.test(message)) return 'That email already has an account.';
   if (/username.*(unique|duplicate)|duplicate key/i.test(message)) return 'That username is already taken.';
+  if (/password should be at least/i.test(message)) return 'Your new password needs to be at least 8 characters long.';
   return message;
 }
 
 function setAuthMode(mode) {
   state.authMode = mode;
   const signup = mode === 'signup';
-  $('auth-title').textContent = signup ? 'Create your account' : 'Welcome back';
+  const resetRequest = mode === 'reset-request';
+  const passwordRecovery = mode === 'password-recovery';
+  const passwordLabel = $('auth-form').elements.password.closest('label');
+  $('auth-title').textContent = signup ? 'Create your account'
+    : resetRequest ? 'Reset your password'
+      : passwordRecovery ? 'Choose a new password'
+        : 'Welcome back';
   $('auth-intro').textContent = signup
     ? 'Choose a username so people can start a chat with you.'
-    : 'Sign in to continue your conversations.';
+    : resetRequest
+      ? 'Enter your email and we’ll send you a secure password reset link.'
+      : passwordRecovery
+        ? 'Choose a new password for your Guildkeep account.'
+        : 'Sign in to continue your conversations.';
   $('display-name-field').hidden = !signup;
   $('username-field').hidden = !signup;
+  passwordLabel.hidden = resetRequest;
   $('auth-form').elements.display_name.required = signup;
   $('auth-form').elements.username.required = signup;
-  $('auth-form').elements.password.autocomplete = signup ? 'new-password' : 'current-password';
-  $('auth-submit').textContent = signup ? 'Create account' : 'Sign in';
+  $('auth-form').elements.password.required = !resetRequest;
+  $('auth-form').elements.password.autocomplete = signup || passwordRecovery
+    ? 'new-password'
+    : 'current-password';
+  $('password-confirm-field').hidden = !passwordRecovery;
+  $('auth-form').elements.password_confirm.required = passwordRecovery;
+  $('auth-submit').textContent = signup ? 'Create account'
+    : resetRequest ? 'Send reset link'
+      : passwordRecovery ? 'Update password'
+        : 'Sign in';
   $('auth-toggle').textContent = signup ? 'Already have an account? Sign in' : 'Create an account';
+  $('auth-toggle').hidden = resetRequest || passwordRecovery;
+  $('auth-forgot-password').hidden = mode !== 'signin';
+  $('auth-back').hidden = !resetRequest && !passwordRecovery;
+  if (resetRequest) $('auth-form').elements.email?.focus();
+  if (passwordRecovery) $('auth-form').elements.password?.focus();
   setStatus($('auth-status'), '');
 }
 
@@ -3825,14 +3853,27 @@ function wire() {
     setAuthMode(state.authMode === 'signin' ? 'signup' : 'signin');
   });
 
+  $('auth-forgot-password').addEventListener('click', () => {
+    setAuthMode('reset-request');
+  });
+
+  $('auth-back').addEventListener('click', () => {
+    setAuthMode('signin');
+  });
+
   $('auth-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const button = $('auth-submit');
+    const mode = state.authMode;
+    const isResetRequest = mode === 'reset-request';
+    const isPasswordRecovery = mode === 'password-recovery';
     button.disabled = true;
-    setStatus($('auth-status'), state.authMode === 'signup' ? 'Creating your account…' : 'Signing in…');
+    if (isResetRequest) setStatus($('auth-status'), 'Sending your reset link…');
+    else if (isPasswordRecovery) setStatus($('auth-status'), 'Updating your password…');
+    else setStatus($('auth-status'), mode === 'signup' ? 'Creating your account…' : 'Signing in…');
     try {
-      if (state.authMode === 'signup') {
+      if (mode === 'signup') {
         const username = String(form.get('username')).trim().toLowerCase();
         const displayName = String(form.get('display_name')).trim();
         const result = await signUp({
@@ -3846,6 +3887,25 @@ function wire() {
         } else {
           setStatus($('auth-status'), 'Account created. Loading your chats…');
         }
+      } else if (isResetRequest) {
+        const email = String(form.get('email') ?? '').trim();
+        if (!email) {
+          setStatus($('auth-status'), 'Enter the email address for your account.', true);
+          return;
+        }
+        await requestPasswordReset(email);
+        setStatus($('auth-status'), 'If an account exists for that email, a secure reset link is on its way.');
+      } else if (isPasswordRecovery) {
+        const password = String(form.get('password') ?? '');
+        const confirmPassword = String(form.get('password_confirm') ?? '');
+        if (password !== confirmPassword) {
+          setStatus($('auth-status'), 'Passwords do not match.', true);
+          return;
+        }
+        await updatePassword({ password });
+        await signOut();
+        setAuthMode('signin');
+        setStatus($('auth-status'), 'Password updated. Sign in with your new password.');
       } else {
         await signIn({
           email: String(form.get('email')).trim(),
@@ -5192,7 +5252,16 @@ if (!isConfigured) {
   $('auth-panel').hidden = false;
   wire();
   try {
-    onAuthChange((_event, session) => { void initialiseWorkspace(session); });
+    onAuthChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setAuthMode('password-recovery');
+        $('auth-panel').hidden = false;
+        $('app-shell').hidden = true;
+        setStatus($('auth-status'), 'Choose a new password for your Guildkeep account.');
+        return;
+      }
+      void initialiseWorkspace(session);
+    });
     const session = await getSession();
     await initialiseWorkspace(session);
   } catch (error) {
