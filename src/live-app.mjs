@@ -666,11 +666,11 @@ function colorHue(id) {
   return hash;
 }
 
-function avatar(name, id, avatarPath = null) {
+function avatar(name, id, avatarPath = null, online = false) {
   const image = avatarPath
     ? `<img src="${esc(publicAvatarUrl(avatarPath))}" alt="" loading="lazy" />`
     : esc(initials(name));
-  return `<span class="avatar" style="--hue:${colorHue(id)}">${image}</span>`;
+  return `<span class="avatar${online ? ' is-online' : ''}" style="--hue:${colorHue(id)}">${image}</span>`;
 }
 
 function chatAvatar(name, id, avatarPath = null) {
@@ -719,7 +719,7 @@ function renderChats() {
           role="group" aria-label="Chat with ${esc(chat.chat_name)}">
           <button class="profile-preview-trigger profile-preview-avatar" type="button"
             data-profile-preview-id="${esc(peer.id)}" aria-label="View ${esc(peer.display_name)}'s profile">
-            ${avatar(peer.display_name, peer.id, peer.avatar_path)}
+            ${avatar(peer.display_name, peer.id, peer.avatar_path, state.onlineUserIds.has(peer.id))}
           </button>
           <span class="row-main">
             <span class="row-top">
@@ -1334,7 +1334,7 @@ function renderMessages() {
             <button class="profile-preview-trigger message-author-avatar" type="button"
               data-profile-preview-id="${esc(message.sender_id)}"
               ${state.activeChat?.chat_type === 'group' ? `data-profile-preview-context="${esc(state.activeChatId)}"` : ''}
-              aria-label="View ${esc(senderName)}'s profile">${avatar(senderName, message.sender_id, message.sender?.avatar_path)}</button>
+              aria-label="View ${esc(senderName)}'s profile">${avatar(senderName, message.sender_id, message.sender?.avatar_path, state.onlineUserIds.has(message.sender_id))}</button>
             <button class="profile-preview-trigger message-sender" type="button"
               data-profile-preview-id="${esc(message.sender_id)}"
               ${state.activeChat?.chat_type === 'group' ? `data-profile-preview-context="${esc(state.activeChatId)}"` : ''}>
@@ -1851,7 +1851,7 @@ function profilePreviewMarkup(preview, contextChatId) {
 
   return `
     <header class="profile-preview-identity">
-      ${avatar(profile.display_name, profile.id, profile.avatar_path)}
+      ${avatar(profile.display_name, profile.id, profile.avatar_path, state.onlineUserIds.has(profile.id))}
       <div>
         <h2 id="profile-preview-name">${esc(profile.display_name)}</h2>
         <span>@${esc(profile.username)}</span>
@@ -2405,9 +2405,11 @@ function renderConversation() {
             <path d="m15 18-6-6 6-6" />
           </svg>
         </button>
-        ${chat.chat_type === 'group'
-          ? chatAvatar(chat.chat_name, chat.chat_id, chat.chat_avatar_path)
-          : avatar(chat.chat_name, chat.chat_id, chat.chat_avatar_path)}
+        ${chat.chat_type === 'direct'
+          ? avatar(chat.chat_name, chat.chat_id, chat.chat_avatar_path, state.onlineUserIds.has(
+            chat.participants?.find((person) => person.id !== state.session.user.id)?.id ?? '',
+          ))
+          : chatAvatar(chat.chat_name, chat.chat_id, chat.chat_avatar_path)}
         <div class="conversation-title">
           <strong>${esc(chat.chat_name)}</strong>
           <span id="chat-connection">${type === 'group' ? `${chat.participants.length + 1} members` : type === 'channel' ? `${chat.participants?.length ?? 0} subscribers` : 'Private chat'} · connecting…</span>
@@ -3315,7 +3317,7 @@ async function openGroupDetails() {
     ${isGroup ? `<div class="group-members"><h3>Members</h3>${members.map((member) => `
       <button class="group-member profile-preview-trigger" type="button"
         data-profile-preview-id="${esc(member.id)}" data-profile-preview-context="${esc(chat.chat_id)}">
-        ${avatar(member.display_name, member.id, member.avatar_path)}
+        ${avatar(member.display_name, member.id, member.avatar_path, state.onlineUserIds.has(member.id))}
         <span><strong>${esc(member.display_name)}</strong><small>@${esc(member.username)}</small></span>
         <small class="member-role">${esc(member.role ?? 'member')}</small>
       </button>`).join('')}</div>` : ''}
