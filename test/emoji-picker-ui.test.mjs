@@ -22,6 +22,18 @@ test('composer picker provides emoji recents, original stickers, and Tenor GIF s
   assert.match(app, /role="tab" data-emoji-picker-tab="gifs"/);
   assert.match(app, /function insertComposerEmoji\(emoji\)/);
   assert.match(app, /composer\.setRangeText\(emoji, start, end, 'end'\)/);
+  assert.match(app, /state\.emojiSelection\?\.start \?\? composer\.selectionStart/);
+  assert.match(app, /added to your message\. Press Send when ready\./);
+  const emojiSelectionHandler = app.split('const emojiChoice = event.target.closest(\'[data-insert-emoji]\');')[1]
+    ?.split('const stickerChoice = event.target.closest(\'[data-insert-sticker]\');')[0];
+  const stickerSelectionHandler = app.split('const stickerChoice = event.target.closest(\'[data-insert-sticker]\');')[1]
+    ?.split('const gifChoice = event.target.closest(\'[data-insert-gif]\');')[0];
+  const gifSelectionHandler = app.split('const gifChoice = event.target.closest(\'[data-insert-gif]\');')[1]
+    ?.split('if (event.target.closest(\'[data-remove-picker-media]\'))')[0];
+  assert.ok(emojiSelectionHandler && stickerSelectionHandler && gifSelectionHandler);
+  assert.doesNotMatch(emojiSelectionHandler, /\.hidden\s*=\s*true/);
+  assert.doesNotMatch(stickerSelectionHandler, /\.hidden\s*=\s*true/);
+  assert.doesNotMatch(gifSelectionHandler, /\.hidden\s*=\s*true/);
   assert.match(app, /event\.key === 'Escape' && !\$\(\'emoji-picker\'\)\.hidden/);
   assert.match(app, /RECENT_EMOJI_STORAGE_KEY/);
   assert.match(app, /data-insert-sticker/);

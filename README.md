@@ -86,11 +86,14 @@ failed files. Status updates expire after 24 hours;
 voice notes can be recorded by holding the microphone, sent on release, or
 cancelled by sliding left. Their waveform, duration, scrubbing, and 1×/1.5×/2×
 playback speed are stored with each message; failed sends keep a retry action.
-The composer has emoji, sticker, and GIF tabs. Emoji recents are stored in the
-browser; eight original, local SVG stickers render at 120 px without a message
-bubble. GIF search runs through the authenticated `tenor-search` Supabase Edge
-Function, keeps the Tenor key server-side, and loads selected GIFs from Tenor's
-CDN. Search terms are sent to Tenor; GIF search requires a `TENOR_API_KEY`
+The composer has emoji, sticker, and GIF tabs. Emoji selections are inserted
+at the saved composer caret; sticker and GIF selections remain as a visible
+draft until sent, and the picker stays open so users can make further
+selections. Emoji recents are stored in the browser; eight original, local SVG
+stickers render at 120 px without a message bubble. GIF search runs through
+the authenticated `tenor-search` Supabase Edge Function, keeps the Tenor key
+server-side, and loads selected GIFs from Tenor's CDN. Search terms are sent to
+Tenor; GIF search requires a `TENOR_API_KEY`
 Supabase Function secret and displays an error if the function or key is not
 configured. The picker displays Tenor's "Search Tenor" and "Powered By Tenor"
 attribution, and each shared GIF includes "Via Tenor". Never put this key in a

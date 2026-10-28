@@ -159,6 +159,7 @@ const state = {
   recentEmojis: null,
   recentEmojiStorageWarningShown: false,
   pickerMediaDraft: null,
+  emojiSelection: null,
   tenorSearch: {
     sequence: 0,
     timer: null,
@@ -1578,9 +1579,10 @@ function renderEmojiPicker(kind = 'emoji') {
 function insertComposerEmoji(emoji) {
   const composer = $('message-form [name="body"]');
   if (!composer) return;
-  const start = composer.selectionStart;
-  const end = composer.selectionEnd;
+  const start = state.emojiSelection?.start ?? composer.selectionStart;
+  const end = state.emojiSelection?.end ?? composer.selectionEnd;
   composer.setRangeText(emoji, start, end, 'end');
+  state.emojiSelection = { start: start + emoji.length, end: start + emoji.length };
   composer.focus();
   composer.dispatchEvent(new Event('input', { bubbles: true }));
 }
@@ -4440,6 +4442,10 @@ function wire() {
       const picker = $('emoji-picker');
       const button = $('emoji-picker-toggle');
       if (picker.hidden) {
+        const composer = $('message-form [name="body"]');
+        state.emojiSelection = composer
+          ? { start: composer.selectionStart, end: composer.selectionEnd }
+          : null;
         renderEmojiPicker();
         button.setAttribute('aria-expanded', 'true');
         picker.querySelector('[data-insert-emoji], [data-insert-sticker]')?.focus();
@@ -4463,8 +4469,17 @@ function wire() {
     if (emojiChoice) {
       rememberEmoji(emojiChoice.dataset.insertEmoji);
       insertComposerEmoji(emojiChoice.dataset.insertEmoji);
-      $('emoji-picker').hidden = true;
-      $('emoji-picker-toggle').setAttribute('aria-expanded', 'false');
+      const status = $('emoji-picker-content');
+      if (status) {
+        let selectionStatus = status.querySelector('.emoji-picker-selection-status');
+        if (!selectionStatus) {
+          selectionStatus = document.createElement('p');
+          selectionStatus.className = 'emoji-picker-status emoji-picker-selection-status';
+          selectionStatus.setAttribute('role', 'status');
+          status.prepend(selectionStatus);
+        }
+        selectionStatus.textContent = `${emojiChoice.dataset.insertEmoji} added to your message. Press Send when ready.`;
+      }
       return;
     }
     const stickerChoice = event.target.closest('[data-insert-sticker]');
@@ -4473,8 +4488,6 @@ function wire() {
       if (!sticker) return;
       state.pickerMediaDraft = { type: 'sticker', id: sticker.id };
       renderPickerMediaDraft();
-      $('emoji-picker').hidden = true;
-      $('emoji-picker-toggle').setAttribute('aria-expanded', 'false');
       $('message-form [name="body"]')?.focus();
       return;
     }
@@ -4491,8 +4504,6 @@ function wire() {
         title: gifChoice.dataset.gifTitle ?? 'GIF',
       };
       renderPickerMediaDraft();
-      $('emoji-picker').hidden = true;
-      $('emoji-picker-toggle').setAttribute('aria-expanded', 'false');
       $('message-form [name="body"]')?.focus();
       return;
     }
