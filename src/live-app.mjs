@@ -997,7 +997,7 @@ function renderMentionSuggestions(input) {
 }
 
 function selectMentionSuggestion(userId) {
-  const input = $('message-form [name="body"]');
+  const input = $('#message-form [name="body"]');
   const person = state.activeChat?.participants.find((participant) => participant.id === userId);
   const draft = state.mentionDraft;
   if (!input || !person || !draft) return;
@@ -1167,7 +1167,7 @@ function setReplyTarget(messageId) {
   if (!message || message.deleted_at) return;
   state.replyingTo = message;
   updateReplyStrip();
-  $('message-form [name="body"]')?.focus();
+  $('#message-form [name="body"]')?.focus();
 }
 
 async function scrollToMessage(messageId) {
@@ -1583,7 +1583,7 @@ function renderEmojiPicker(kind = 'emoji') {
 }
 
 function insertComposerEmoji(emoji) {
-  const composer = $('message-form [name="body"]');
+  const composer = $('#message-form [name="body"]');
   if (!composer) return;
   const start = state.emojiSelection?.start ?? composer.selectionStart;
   const end = state.emojiSelection?.end ?? composer.selectionEnd;
@@ -2039,7 +2039,7 @@ async function sendQueuedChatMedia(chat, itemIds, body, rawBody, replyToId) {
   const initialRawBody = rawBody;
   let pendingCaption = body;
   let sent = 0;
-  const input = state.activeChatId === chatId ? $('message-form [name="body"]') : null;
+  const input = state.activeChatId === chatId ? $('#message-form [name="body"]') : null;
 
   for (const item of items) {
     if (!queue.includes(item)) continue;
@@ -2246,7 +2246,7 @@ async function openPersonChat(person, sourceButton, fromDialog = false) {
     clearTimeout(renderChats.searchTimeout);
     renderChats();
     await openChat(chatId);
-    $('message-form [name="body"]')?.focus();
+    $('#message-form [name="body"]')?.focus();
   } catch (error) {
     if (sourceButton) sourceButton.disabled = false;
     if (fromDialog) setStatus($('new-chat-status'), friendlyError(error), true);
@@ -4176,7 +4176,7 @@ function wire() {
     if (event.target.closest('[data-cancel-reply]')) {
       state.replyingTo = null;
       updateReplyStrip();
-      $('message-form [name="body"]')?.focus();
+      $('#message-form [name="body"]')?.focus();
       return;
     }
     const quote = event.target.closest('[data-scroll-to-message]');
@@ -4450,7 +4450,7 @@ function wire() {
       const picker = $('emoji-picker');
       const button = $('emoji-picker-toggle');
       if (picker.hidden) {
-        const composer = $('message-form [name="body"]');
+        const composer = $('#message-form [name="body"]');
         state.emojiSelection = composer
           ? { start: composer.selectionStart, end: composer.selectionEnd }
           : null;
@@ -4496,7 +4496,7 @@ function wire() {
       if (!sticker) return;
       state.pickerMediaDraft = { type: 'sticker', id: sticker.id };
       renderPickerMediaDraft();
-      $('message-form [name="body"]')?.focus();
+      $('#message-form [name="body"]')?.focus();
       return;
     }
     const gifChoice = event.target.closest('[data-insert-gif]');
@@ -4512,13 +4512,13 @@ function wire() {
         title: gifChoice.dataset.gifTitle ?? 'GIF',
       };
       renderPickerMediaDraft();
-      $('message-form [name="body"]')?.focus();
+      $('#message-form [name="body"]')?.focus();
       return;
     }
     if (event.target.closest('[data-remove-picker-media]')) {
       state.pickerMediaDraft = null;
       renderPickerMediaDraft();
-      $('message-form [name="body"]')?.focus();
+      $('#message-form [name="body"]')?.focus();
       return;
     }
     const removeChatMedia = event.target.closest('[data-remove-chat-media]');
@@ -4528,7 +4528,7 @@ function wire() {
     }
     const retryChatMedia = event.target.closest('[data-retry-chat-media]');
     if (retryChatMedia && state.activeChat) {
-      const input = $('message-form [name="body"]');
+      const input = $('#message-form [name="body"]');
       const rawBody = input?.value ?? '';
       const body = messageBodyWithPickerMedia(rawBody);
       if (body.length > 4000) {

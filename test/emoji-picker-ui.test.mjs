@@ -13,6 +13,8 @@ test('composer picker provides emoji recents, original stickers, and GIPHY searc
   ]);
   assert.match(app, /document\.querySelector\(idOrSelector\)/);
   assert.match(app, /document\.getElementById\(idOrSelector\)/);
+  assert.match(app, /\$\('#message-form \[name="body"\]'\)/);
+  assert.doesNotMatch(app, /\$\('message-form \[name="body"\]'\)/);
   const stickerAssets = await Promise.all(stickers
     .filter((name) => name.endsWith('.svg'))
     .map((name) => readFile(new URL(`../src/stickers/${name}`, import.meta.url), 'utf8')));
