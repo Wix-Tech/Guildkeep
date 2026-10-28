@@ -178,6 +178,9 @@ can access.
    mute preferences, unread indicators, private mention-alert preferences,
    and per-chat disappearing-message timers. The disappearing-message feature
    also requires the `cleanup-expired-media` Edge Function to be deployed.
+   If the app reports that `get_chat_disappearing_timer` is missing from the
+   schema cache after applying migration 018, run
+   `notify pgrst, 'reload schema';` in the Supabase SQL Editor.
    Read receipts are visible only to members of the same chat; typing and
    presence use private per-chat channels and are never stored as message rows.
    Message replies are

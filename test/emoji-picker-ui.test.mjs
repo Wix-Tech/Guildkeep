@@ -16,6 +16,7 @@ test('composer picker provides emoji recents, original stickers, and Tenor GIF s
     .map((name) => readFile(new URL(`../src/stickers/${name}`, import.meta.url), 'utf8')));
 
   assert.match(app, /id="emoji-picker-toggle"/);
+  assert.match(app, />☺ Emoji<\/button>/);
   assert.match(app, /function renderEmojiPicker/);
   assert.match(app, /role="tab" data-emoji-picker-tab="stickers"/);
   assert.match(app, /role="tab" data-emoji-picker-tab="gifs"/);
@@ -38,6 +39,7 @@ test('composer picker provides emoji recents, original stickers, and Tenor GIF s
   assert.match(app, />Powered By Tenor</);
   assert.match(app, /<figcaption><a href="https:\/\/tenor\.com"[^>]*>Via Tenor<\/a><\/figcaption>/);
   assert.match(styles, /\.emoji-picker-grid/);
+  assert.match(styles, /\.toast\s*\{[^}]*bottom:\s*calc\(84px/);
   assert.match(styles, /\.message\.is-sticker\s*\{[^}]*background:\s*transparent/);
   assert.match(styles, /\.message-sticker\s*\{[^}]*width:\s*120px[^}]*height:\s*120px/);
   assert.match(styles, /\.emoji-picker-recent/);

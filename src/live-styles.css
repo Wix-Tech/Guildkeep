@@ -605,6 +605,13 @@
   border: 1px solid var(--line);
   font-size: 16px;
 }
+.conversation-footer #emoji-picker-toggle {
+  width: auto;
+  min-width: 72px;
+  padding: 0 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
 .emoji-picker {
   position: absolute;
   z-index: 20;
@@ -964,7 +971,7 @@
 .group-statuses p small { color: var(--muted); font-size: 9px; }
 .group-command-form { margin-top: 14px; }
 .command-hint { margin: 0; line-height: 1.5; }
-.toast { position: fixed; bottom: 23px; left: 50%; z-index: 20; max-width: calc(100vw - 30px); transform: translate(-50%, 16px); padding: 10px 15px; color: var(--text); background: #28201b; border: 1px solid #4b3427; border-radius: 999px; font-size: 11px; opacity: 0; pointer-events: none; transition: 0.2s ease; }
+.toast { position: fixed; bottom: calc(84px + env(safe-area-inset-bottom)); left: 50%; z-index: 20; max-width: calc(100vw - 30px); transform: translate(-50%, 16px); padding: 10px 15px; color: var(--text); background: #28201b; border: 1px solid #4b3427; border-radius: 999px; font-size: 11px; opacity: 0; pointer-events: none; transition: 0.2s ease; }
 .toast.show { transform: translate(-50%, 0); opacity: 1; }
 
 .profile-preview-backdrop {

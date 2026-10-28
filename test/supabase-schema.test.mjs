@@ -228,6 +228,7 @@ test(
       const expiryCronSetup = expirySchemaMigration.lastIndexOf('do $$');
       assert.ok(expiryCronSetup > 0, 'disappearing messages should schedule server-side expiry');
       assert.match(disappearingMessagesMigration, /cron\.schedule\([\s\S]*?\* \* \* \* \*/i);
+      assert.match(disappearingMessagesMigration, /notify\s+pgrst,\s*'reload schema'/i);
       await db.exec(expirySchemaMigration.slice(0, expiryCronSetup));
       await db.exec(expirySchemaMigration.slice(0, expiryCronSetup));
       assert.match(disappearingMessagesDownMigration, /cron\.unschedule/i);

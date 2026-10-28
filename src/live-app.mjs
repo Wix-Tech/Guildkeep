@@ -2131,7 +2131,7 @@ function renderConversation() {
           <div id="chat-media-drop-hint" class="chat-media-drop-hint" hidden>Drop files to attach</div>
           <div id="chat-media-queue" class="chat-media-queue" hidden aria-label="Files ready to send"></div>
           <div id="picker-media-draft" class="picker-media-draft" hidden></div>
-          <button class="composer-tool" type="button" id="emoji-picker-toggle" aria-label="Open emoji and stickers" aria-expanded="false">☺</button>
+          <button class="composer-tool" type="button" id="emoji-picker-toggle" aria-label="Open emoji, sticker, and GIF picker" title="Emoji, stickers, and GIFs" aria-expanded="false">☺ Emoji</button>
           <div id="emoji-picker" class="emoji-picker" hidden role="dialog" aria-label="Emoji and stickers"></div>
           <button class="composer-tool" type="button" id="attach-media" aria-label="Attach media" title="Attach media">＋</button>
           <button class="composer-tool voice-note-control" type="button" id="voice-note"
