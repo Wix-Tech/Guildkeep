@@ -1262,7 +1262,17 @@ function renderMessages() {
     return;
   }
   if (!state.messages.length) {
-    list.innerHTML = '<div class="loading">No messages yet. Say hello.</div>';
+    list.innerHTML = `
+      <section class="conversation-empty">
+        <span class="conversation-empty-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+            <path d="M21 2 3 10l18 8 2 5-9 3-7 2-4 2z" />
+            <path d="M21 2 11 13" />
+          </svg>
+        </span>
+        <p class="conversation-empty-title">No messages yet</p>
+        <p class="conversation-empty-hint">Send the first message to start this conversation.</p>
+      </section>`;
     return;
   }
 

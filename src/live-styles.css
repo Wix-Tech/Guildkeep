@@ -331,6 +331,26 @@
 .message-gif-figure figcaption { margin-top: 3px; font-size: 9px; text-align: right; }
 .message-gif-figure figcaption a { color: #eaa170; text-decoration: underline; }
 .message.is-deleted { color: var(--muted); background: transparent; border-style: dashed; box-shadow: none; }
+.conversation-empty {
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  min-height: 42vh;
+  padding: 44px 24px;
+  text-align: center;
+}
+.conversation-empty-icon {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  color: #e8873a;
+  background: rgba(204, 85, 0, 0.1);
+  border: 1px solid #4b3427;
+  border-radius: 50%;
+}
+.conversation-empty-title { margin: 4px 0 0; color: var(--text); font-size: 14px; font-weight: 650; }
+.conversation-empty-hint { margin: 0; max-width: 260px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .forwarded-label { display: block; margin-bottom: 4px; color: #eda879; font-size: 9px; font-style: italic; }
 .message-quote {
   width: 100%;
