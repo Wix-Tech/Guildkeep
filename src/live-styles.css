@@ -1035,6 +1035,7 @@
 .profile-preview-list small { color: var(--muted); font-size: 9px; }
 .profile-preview-empty { padding: 22px 8px; color: var(--muted); text-align: center; font-size: 11px; }
 .profile-preview-safety { display: flex; gap: 12px; margin: 10px 0 0; padding-top: 14px; border-top: 1px solid var(--line); }
+.profile-preview-safety .danger-action { color: #ff9a9a; }
 .profile-preview-safety button { padding: 5px 0; color: #e8873a; background: transparent; border: 0; cursor: pointer; font: inherit; font-size: 10px; }
 .profile-lightbox {
   position: fixed;

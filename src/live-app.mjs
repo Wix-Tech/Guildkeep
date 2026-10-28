@@ -5237,6 +5237,8 @@ function wire() {
       state.peopleSearchSequence += 1;
       $('message-context').hidden = true;
       document.querySelectorAll('.dialog-backdrop').forEach((dialog) => { dialog.hidden = true; });
+      if (!$('profile-lightbox').hidden) closeProfileLightbox();
+      else if (!$('profile-preview').hidden) closeProfilePreview();
     }
     if (event.key === '/' && !event.target.matches('input, textarea')) {
       event.preventDefault();
