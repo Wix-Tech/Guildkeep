@@ -37,6 +37,7 @@ import {
   createGroup,
   createChannel,
   createStatus,
+  cleanupExpiredMessageMedia,
   deleteMessage,
   deleteStatus,
   discoverChannels,
@@ -47,6 +48,7 @@ import {
   getProfilePreview,
   getMyMentionNotificationsEnabled,
   getMessage,
+  getChatDisappearingTimer,
   getSession,
   isConfigured,
   joinGroupByInvite,
@@ -73,6 +75,7 @@ import {
   searchMessages,
   setChatPinned,
   setChatMuted,
+  setChatDisappearingTimer,
   signedMediaUrl,
   signedMediaUrls,
   publicAvatarUrl,
@@ -113,6 +116,7 @@ const state = {
   mutingChatIds: new Set(),
   activeChatId: null,
   messages: [],
+  messageExpiryTimer: null,
   unsubscribeMessages: null,
   unsubscribeChat: null,
   unsubscribeMemberships: null,
@@ -503,6 +507,8 @@ function clearWorkspace() {
   state.presenceLastTouchAt = 0;
   clearInterval(state.voiceTimer);
   clearInterval(state.voiceWaveformTimer);
+  clearTimeout(state.messageExpiryTimer);
+  state.messageExpiryTimer = null;
   state.voiceTimer = null;
   state.voiceWaveformTimer = null;
   state.voiceHold = { released: true, cancelled: true };
@@ -527,6 +533,8 @@ function clearWorkspace() {
   }
   state.pendingChatMedia.clear();
   stopChatLive();
+  clearTimeout(state.messageExpiryTimer);
+  state.messageExpiryTimer = null;
   state.unsubscribeMentions?.();
   state.unsubscribeMentions = null;
   state.mentions = [];
@@ -1009,6 +1017,22 @@ function formatMessageTime(timestamp) {
 function renderMessages() {
   const list = $('message-list');
   if (!list) return;
+  clearTimeout(state.messageExpiryTimer);
+  state.messageExpiryTimer = null;
+  const now = Date.now();
+  state.messages = state.messages.filter((message) => {
+    if (!message.expires_at) return true;
+    const expiresAt = Date.parse(message.expires_at);
+    return !Number.isFinite(expiresAt) || expiresAt > now;
+  });
+  const nextExpiry = state.messages.reduce((earliest, message) => {
+    if (!message.expires_at) return earliest;
+    const expiresAt = Date.parse(message.expires_at);
+    return Number.isFinite(expiresAt) && expiresAt < earliest ? expiresAt : earliest;
+  }, Infinity);
+  if (Number.isFinite(nextExpiry)) {
+    state.messageExpiryTimer = setTimeout(() => renderMessages(), Math.max(0, nextExpiry - now + 10));
+  }
   const activeAudio = [...list.querySelectorAll('.voice-player-audio')].find((audio) => !audio.paused);
   const playback = activeAudio
     ? {
@@ -2094,7 +2118,7 @@ function renderConversation() {
           aria-label="Search this conversation" title="Search this conversation">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>
         </button>
-        ${type !== 'direct' ? '<button id="group-info" class="icon-button group-info-button" type="button" aria-label="Conversation details" title="Conversation details">⋯</button>' : ''}
+        <button id="group-info" class="icon-button group-info-button" type="button" aria-label="Conversation details" title="Conversation details">⋯</button>
       </header>
       <div id="pinned-message-banner"></div>
       <div class="conversation-body" id="message-list" aria-live="polite"></div>
@@ -2314,6 +2338,11 @@ async function openChat(chatId, chatOverride = null) {
   renderConversation();
 
   try {
+    try {
+      await cleanupExpiredMessageMedia();
+    } catch (error) {
+      showToast(`Could not clean up expired attachments: ${friendlyError(error)}`);
+    }
     state.unsubscribeMessages = subscribeToMessages(chatId, handleIncomingMessage, (status) => {
       const label = $('chat-connection');
       if (!label || state.activeChatId !== chatId) return;
@@ -2570,10 +2599,20 @@ async function handleIncomingMessage(message) {
     return;
   }
   if (message.eventType !== 'INSERT') {
+    if (message.eventType === 'DELETE'
+      && message.expires_at
+      && Date.parse(message.expires_at) <= Date.now()) {
+      try {
+        await cleanupExpiredMessageMedia();
+      } catch (error) {
+        showToast(`Could not clean up expired attachments: ${friendlyError(error)}`);
+      }
+    }
     try {
       state.messages = await hydrateMessages(await listMessages(message.chat_id));
       await refreshReactions(message.chat_id);
       renderMessages();
+      if (message.eventType === 'DELETE') await refreshChats();
     } catch (error) {
       showToast(`Could not refresh the updated message: ${friendlyError(error)}`);
     }
@@ -2769,10 +2808,13 @@ function renderGroupMemberResults() {
 
 async function openGroupDetails() {
   const chat = state.activeChat;
-  if (!chat?.is_group) return;
+  if (!chat) return;
   const isChannel = chat.chat_type === 'channel';
+  const isDirect = chat.chat_type === 'direct';
+  const isGroup = chat.chat_type === 'group';
   const isAdmin = ['admin', 'owner'].includes(chat.my_role);
   const isOwner = chat.my_role === 'owner';
+  const canChangeDisappearingTimer = isDirect || (isGroup && isAdmin);
   const inviteUrl = chat.invite_code
     ? currentInviteUrl(isChannel ? 'channel' : 'invite', chat.invite_code)
     : '';
@@ -2784,8 +2826,17 @@ async function openGroupDetails() {
     { id: state.session.user.id, username: state.profile.username, display_name: state.profile.display_name, role: chat.my_role },
     ...(chat.participants ?? []),
   ];
+  let disappearingTimer = null;
+  if (isDirect || isGroup) {
+    try {
+      disappearingTimer = await getChatDisappearingTimer(chat.chat_id);
+    } catch (error) {
+      showToast(`Could not load disappearing-message settings: ${friendlyError(error)}`);
+      return;
+    }
+  }
   let statuses = [];
-  if (!isChannel) {
+  if (isGroup) {
     try {
       statuses = await listGroupStatuses(chat.chat_id);
     } catch (error) {
@@ -2793,20 +2844,35 @@ async function openGroupDetails() {
     }
   }
   if (state.activeChatId !== chat.chat_id) return;
-  $('group-details-title').textContent = chat.chat_name;
+  $('group-details-title').textContent = `${chat.chat_name} details`;
   $('group-details-content').innerHTML = `
     <div class="chat-details-identity">
-      ${chatAvatar(chat.chat_name, chat.chat_id, chat.chat_avatar_path)}
-      <div><strong>${esc(chat.chat_name)}</strong><small>${isChannel ? `${subscribers} subscribers` : `${members.length} members`}</small></div>
+      ${isGroup ? chatAvatar(chat.chat_name, chat.chat_id, chat.chat_avatar_path) : avatar(chat.chat_name, chat.chat_id, chat.chat_avatar_path)}
+      <div><strong>${esc(chat.chat_name)}</strong><small>${isChannel ? `${subscribers} subscribers` : isGroup ? `${members.length} members` : 'Private conversation'}</small></div>
     </div>
     <p class="group-summary">${isChannel
       ? `${chat.channel_public ? 'Public' : 'Private'} channel · ${esc(chat.my_role ?? 'subscriber')}`
-      : `${esc(chat.my_role ?? 'member')}${chat.group_locked ? ' · Posting locked' : ''}${chat.announcement_mode ? ' · Admin announcements' : ''}`}</p>
+      : isDirect
+        ? 'Messages are private to the two participants.'
+        : `${esc(chat.my_role ?? 'member')}${chat.group_locked ? ' · Posting locked' : ''}${chat.announcement_mode ? ' · Admin announcements' : ''}`}</p>
     ${inviteUrl ? `<div class="group-invite">
       <strong>${isChannel ? 'Channel invite' : 'Invite link'}</strong><code>${esc(inviteUrl)}</code>
       <button class="secondary-button" id="share-group-invite" type="button">Share link</button>
     </div>` : ''}
-    ${!isChannel ? `<div class="group-members"><h3>Members</h3>${members.map((member) => `
+    ${(isDirect || isGroup) ? `<form id="disappearing-settings-form" class="feature-form">
+      <h3>Disappearing messages</h3>
+      <label>Delete new messages after
+        <select name="timer_seconds" ${canChangeDisappearingTimer ? '' : 'disabled'}>
+          <option value="0" ${disappearingTimer === 0 ? 'selected' : ''}>Off</option>
+          <option value="86400" ${disappearingTimer === 86400 ? 'selected' : ''}>24 hours</option>
+          <option value="604800" ${disappearingTimer === 604800 ? 'selected' : ''}>7 days</option>
+          <option value="7776000" ${disappearingTimer === 7776000 ? 'selected' : ''}>90 days</option>
+        </select>
+      </label>
+      <p class="command-hint">The timer starts when each message is sent. Changing it affects new messages only; existing messages keep their current setting.</p>
+      ${canChangeDisappearingTimer ? '<button class="secondary-button" type="submit">Save timer</button>' : '<p class="command-hint">Only group admins can change this setting.</p>'}
+    </form>` : ''}
+    ${isGroup ? `<div class="group-members"><h3>Members</h3>${members.map((member) => `
       <button class="group-member profile-preview-trigger" type="button"
         data-profile-preview-id="${esc(member.id)}" data-profile-preview-context="${esc(chat.chat_id)}">
         ${avatar(member.display_name, member.id, member.avatar_path)}
@@ -2850,7 +2916,7 @@ async function openGroupDetails() {
         ? 'Only channel admins can publish. Public channels can be discovered; private channels require an invite.'
         : 'Group admins can also manage members with /add, /kick, /ban, /promote and /demote commands.'}</p>
     </form>` : ''}
-    ${!isChannel ? `<div class="group-statuses"><strong>Recent group status</strong>
+    ${isGroup ? `<div class="group-statuses"><strong>Recent group status</strong>
       ${statuses.length ? statuses.map((status) => `<p><span>${esc(status.body)}</span><small>${esc(status.author_name)} · ${esc(formatMessageTime(status.created_at))}</small></p>`).join('') : '<p class="selection-hint">No active group status.</p>'}
     </div>
     ${isAdmin ? `<form id="group-command-form" class="feature-form group-command-form">
@@ -2860,7 +2926,7 @@ async function openGroupDetails() {
       <button class="secondary-button" type="submit">Run command</button>
       <p class="command-hint">Use commands for invites, member management, and moderation.</p>
     </form>` : '<p class="command-hint">Members can type /help or /rules in the message box.</p>'}` : ''}
-    ${!isOwner ? `<button class="danger-button" id="leave-chat" type="button">Leave ${isChannel ? 'channel' : 'group'}</button>` : '<p class="command-hint">Owners must transfer ownership before leaving.</p>'}
+    ${!isDirect ? !isOwner ? `<button class="danger-button" id="leave-chat" type="button">Leave ${isChannel ? 'channel' : 'group'}</button>` : '<p class="command-hint">Owners must transfer ownership before leaving.</p>' : ''}
     ${!chat.is_subscribed && !isAdmin && isChannel ? '<button class="primary-button" id="subscribe-channel-details" type="button">Subscribe to channel</button>' : ''}`;
   $('group-details-dialog').hidden = false;
 }
@@ -4212,6 +4278,27 @@ function wire() {
     }
   });
   $('group-details-content').addEventListener('submit', async (event) => {
+    if (event.target.id === 'disappearing-settings-form') {
+      event.preventDefault();
+      const formElement = event.target;
+      const chat = state.activeChat;
+      if (!chat) return;
+      const submit = formElement.querySelector('button[type="submit"]');
+      if (submit) submit.disabled = true;
+      try {
+        await setChatDisappearingTimer(
+          chat.chat_id,
+          Number(new FormData(formElement).get('timer_seconds')),
+        );
+        await openGroupDetails();
+        showToast('Disappearing-message timer saved. It applies to new messages.');
+      } catch (error) {
+        showToast(`Could not save disappearing-message settings: ${friendlyError(error)}`);
+      } finally {
+        if (submit) submit.disabled = false;
+      }
+      return;
+    }
     if (event.target.id === 'chat-settings-form') {
       event.preventDefault();
       const formElement = event.target;

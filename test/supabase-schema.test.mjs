@@ -18,6 +18,7 @@ test(
       await db.exec(`
         create role anon;
         create role authenticated;
+        create role service_role;
         create schema auth;
         create schema storage;
         create schema realtime;
@@ -158,6 +159,14 @@ test(
         new URL('../db/supabase/016_voice_note_metadata.down.sql', import.meta.url),
         'utf8',
       );
+      const disappearingMessagesMigration = await readFile(
+        new URL('../db/supabase/018_disappearing_messages.sql', import.meta.url),
+        'utf8',
+      );
+      const disappearingMessagesDownMigration = await readFile(
+        new URL('../db/supabase/018_disappearing_messages.down.sql', import.meta.url),
+        'utf8',
+      );
       const publicationSetup = migration.lastIndexOf('\ndo $$') + 1;
       assert.ok(publicationSetup > 1, 'migration should configure Realtime publication');
       await db.exec(migration.slice(0, publicationSetup));
@@ -214,6 +223,14 @@ test(
       assert.match(voiceNoteMigration, /voice_duration_ms integer/i);
       assert.match(voiceNoteMigration, /voice_waveform jsonb/i);
       assert.match(voiceNoteMigration, /messages_voice_note_metadata_check/i);
+      const expirySchemaMigration = disappearingMessagesMigration
+        .replace(/^create extension if not exists pg_cron;\s*/i, '');
+      const expiryCronSetup = expirySchemaMigration.lastIndexOf('do $$');
+      assert.ok(expiryCronSetup > 0, 'disappearing messages should schedule server-side expiry');
+      assert.match(disappearingMessagesMigration, /cron\.schedule\([\s\S]*?\* \* \* \* \*/i);
+      await db.exec(expirySchemaMigration.slice(0, expiryCronSetup));
+      await db.exec(expirySchemaMigration.slice(0, expiryCronSetup));
+      assert.match(disappearingMessagesDownMigration, /cron\.unschedule/i);
 
       const userA = '00000000-0000-4000-8000-000000000001';
       const userB = '00000000-0000-4000-8000-000000000002';
@@ -270,6 +287,101 @@ test(
         [chatId, userA],
       );
       assert.ok(inserted[0].id);
+      const { rows: initialExpiry } = await db.query(
+        `select expires_at from public.messages where id = $1`,
+        [inserted[0].id],
+      );
+      assert.equal(initialExpiry[0].expires_at, null, 'messages sent with the timer off do not expire');
+      await db.query(`select public.set_chat_disappearing_timer($1, 86400)`, [chatId]);
+      const { rows: expiryProbe } = await db.query(
+        `insert into public.messages (chat_id, sender_id, body, media_path, media_type, file_name)
+         values ($1, $2, 'Temporary attachment', $3, 'image/png', 'temporary.png')
+         returning id, created_at, expires_at`,
+        [chatId, userA, `${chatId}/${userA}/temporary.png`],
+      );
+      assert.equal(
+        new Date(expiryProbe[0].expires_at).getTime() - new Date(expiryProbe[0].created_at).getTime(),
+        24 * 60 * 60 * 1000,
+        'new messages inherit the server-side timer from their sent time',
+      );
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
+      await db.query(`select public.set_chat_disappearing_timer($1, 0)`, [chatId]);
+      await assert.rejects(
+        db.query(`select public.set_chat_disappearing_timer($1, null)`, [chatId]),
+        /choose off, 24 hours, 7 days, or 90 days/i,
+      );
+      await db.exec('reset role');
+      await db.query(
+        `insert into storage.objects (bucket_id, name) values ('chat-media', $1)`,
+        [`${chatId}/${userA}/temporary.png`],
+      );
+      await db.query(
+        `update public.messages set expires_at = now() - interval '1 second' where id = $1`,
+        [expiryProbe[0].id],
+      );
+      await db.exec('set role authenticated');
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
+      const { rows: hiddenExpired } = await db.query(
+        `select id from public.messages where id = $1`,
+        [expiryProbe[0].id],
+      );
+      assert.deepEqual(hiddenExpired, [], 'RLS hides a message as soon as its timer expires');
+      const { rows: dueMediaReadable } = await db.query(
+        `select public.is_expired_message_media($1) as is_expired`,
+        [`${chatId}/${userA}/temporary.png`],
+      );
+      assert.deepEqual(dueMediaReadable, [{ is_expired: true }]);
+      const { rows: hiddenDueMedia } = await db.query(
+        `select name from storage.objects where name = $1`,
+        [`${chatId}/${userA}/temporary.png`],
+      );
+      assert.deepEqual(hiddenDueMedia, [], 'media access ends at the expiry deadline, before cron runs');
+      await db.exec('reset role');
+      const { rows: expiredCount } = await db.query(`select public.expire_due_messages() as count`);
+      assert.equal(expiredCount[0].count, 1, 'server cleanup permanently removes expired messages');
+      const { rows: removedExpiryProbe } = await db.query(
+        `select id from public.messages where id = $1`,
+        [expiryProbe[0].id],
+      );
+      assert.deepEqual(removedExpiryProbe, []);
+      const { rows: expiredMedia } = await db.query(
+        `select media_path from public.expired_message_media where chat_id = $1`,
+        [chatId],
+      );
+      assert.deepEqual(expiredMedia, [{ media_path: `${chatId}/${userA}/temporary.png` }]);
+      await db.exec('set role authenticated');
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
+      const { rows: expiredMediaReadable } = await db.query(
+        `select public.is_expired_message_media($1) as is_expired`,
+        [`${chatId}/${userA}/temporary.png`],
+      );
+      assert.deepEqual(expiredMediaReadable, [{ is_expired: true }]);
+      const { rows: hiddenExpiredMedia } = await db.query(
+        `select name from storage.objects where name = $1`,
+        [`${chatId}/${userA}/temporary.png`],
+      );
+      assert.deepEqual(hiddenExpiredMedia, [], 'expired attachments are blocked from reads immediately');
+      const { rows: removedExpiredMedia } = await db.query(
+        `delete from storage.objects where name = $1 returning name`,
+        [`${chatId}/${userA}/temporary.png`],
+      );
+      assert.deepEqual(removedExpiredMedia, [], 'ordinary members cannot delete another member’s expired upload');
+      await db.exec('reset role');
+      const { rows: retainedExpiredMedia } = await db.query(
+        `select name from storage.objects where name = $1`,
+        [`${chatId}/${userA}/temporary.png`],
+      );
+      assert.deepEqual(retainedExpiredMedia, [{ name: `${chatId}/${userA}/temporary.png` }]);
+      await db.query(
+        `delete from storage.objects where name = $1`,
+        [`${chatId}/${userA}/temporary.png`],
+      );
+      await db.query(
+        `delete from public.expired_message_media where media_path = $1`,
+        [`${chatId}/${userA}/temporary.png`],
+      );
+      await db.exec('set role authenticated');
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
       const { rows: pin } = await db.query(
         `insert into public.chat_pins (chat_id, message_id, pinned_by)
          values ($1, $2, $3) returning message_id`,
@@ -706,6 +818,7 @@ test(
         `select public.create_group('Weekend plans', array['sam_two']) as chat_id`,
       );
       const groupId = createdGroups[0].chat_id;
+      await db.query(`select public.set_chat_disappearing_timer($1, 604800)`, [groupId]);
       const { rows: listedGroups } = await db.query(
         `select chat_name, is_group, my_role, invite_code, participants
          from public.list_my_chats() where chat_id = $1`,
@@ -716,6 +829,12 @@ test(
       assert.equal(listedGroups[0].my_role, 'owner');
       assert.match(listedGroups[0].invite_code, /^[a-f0-9]{32}$/);
       assert.equal(listedGroups[0].participants[0].username, 'sam_two');
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
+      await assert.rejects(
+        db.query(`select public.set_chat_disappearing_timer($1, 0)`, [groupId]),
+        /only group admins can change/i,
+      );
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
       await db.query(
         `insert into storage.objects (bucket_id, name) values ('chat-avatars', $1)`,
         [`${groupId}/${userA}/group-avatar.png`],
@@ -1234,6 +1353,19 @@ test(
         /row-level security|not a member/i,
       );
       await db.exec('reset role');
+      const expiryDownCronEnd = disappearingMessagesDownMigration.indexOf('\n$$;') + 4;
+      assert.ok(expiryDownCronEnd > 0, 'rollback should unschedule the expiry job');
+      await db.exec(disappearingMessagesDownMigration.slice(expiryDownCronEnd));
+      const { rows: disabledExpiry } = await db.query(
+        `select disappearing_after_seconds from public.chats where id = $1`,
+        [chatId],
+      );
+      assert.deepEqual(disabledExpiry, [{ disappearing_after_seconds: 0 }]);
+      const { rows: removedExpiryTrigger } = await db.query(
+        `select tgname from pg_trigger where tgrelid = 'public.messages'::regclass
+           and tgname = 'messages_set_expiration'`,
+      );
+      assert.deepEqual(removedExpiryTrigger, []);
       await db.exec(voiceNoteDownMigration);
       await db.exec(voiceNoteDownMigration);
       const { rows: removedVoiceColumns } = await db.query(

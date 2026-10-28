@@ -147,7 +147,7 @@ export async function searchTenorGifs(query) {
   return data.results;
 }
 
-const MESSAGE_PROJECTION = 'id, chat_id, sender_id, body, created_at, media_path, media_type, file_name, voice_note, voice_duration_ms, voice_waveform, edited_at, deleted_at, forwarded_from, reply_to_id, sender:profiles!messages_sender_id_fkey(display_name, username, avatar_path)';
+const MESSAGE_PROJECTION = 'id, chat_id, sender_id, body, created_at, expires_at, media_path, media_type, file_name, voice_note, voice_duration_ms, voice_waveform, edited_at, deleted_at, forwarded_from, reply_to_id, sender:profiles!messages_sender_id_fkey(display_name, username, avatar_path)';
 
 async function attachReplyTargets(messages, chatId) {
   const replyIds = [...new Set(messages.map((message) => message.reply_to_id).filter(Boolean))];
@@ -419,6 +419,30 @@ export async function updateChatSettings(chatId, settings) {
   return data;
 }
 
+export async function getChatDisappearingTimer(chatId) {
+  const { data, error } = await client().rpc('get_chat_disappearing_timer', {
+    target_chat_id: chatId,
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function setChatDisappearingTimer(chatId, seconds) {
+  const { data, error } = await client().rpc('set_chat_disappearing_timer', {
+    target_chat_id: chatId,
+    new_timer_seconds: seconds,
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function cleanupExpiredMessageMedia() {
+  const { error } = await client().functions.invoke('cleanup-expired-media', {
+    body: {},
+  });
+  if (error) throw error;
+}
+
 export async function leaveChat(chatId) {
   const { error } = await client().rpc('leave_chat', {
     target_chat_id: chatId,
@@ -586,7 +610,10 @@ export function subscribeToMessages(chatId, onMessage, onStatus) {
         table: 'messages',
         filter: `chat_id=eq.${chatId}`,
       },
-      (payload) => onMessage({ ...payload.new, eventType: payload.eventType }),
+      (payload) => onMessage({
+        ...(payload.eventType === 'DELETE' ? payload.old : payload.new),
+        eventType: payload.eventType,
+      }),
     )
     .subscribe(onStatus);
   return () => client().removeChannel(channel);

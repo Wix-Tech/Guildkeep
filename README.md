@@ -146,8 +146,9 @@ can access.
    `db/supabase/013_mentions_notifications.sql`,
    `db/supabase/014_chat_pin_limit.sql`, and
    `db/supabase/015_unread_behavior.sql`, and
-   `db/supabase/016_voice_note_metadata.sql` and
-   `db/supabase/017_notification_preferences.sql` in order in its SQL Editor. To roll
+   `db/supabase/016_voice_note_metadata.sql`,
+   `db/supabase/017_notification_preferences.sql`, and
+   `db/supabase/018_disappearing_messages.sql` in order in its SQL Editor. To roll
    back message replies, run `db/supabase/008_message_replies.down.sql`; to
    roll back reaction scoping, run
    `db/supabase/007_chat_reaction_scoping.down.sql`; to roll back read receipts
@@ -163,14 +164,20 @@ can access.
    Voice-note metadata can be removed with
    `db/supabase/016_voice_note_metadata.down.sql`; mention notification
    preferences can be removed with
-   `db/supabase/017_notification_preferences.down.sql`. The
+   `db/supabase/017_notification_preferences.down.sql`; disappearing
+   messages can be disabled with
+   `db/supabase/018_disappearing_messages.down.sql`. The rollback turns off
+   future expiry and clears remaining timers while retaining expiry columns
+   and pending media-cleanup records for compatibility and safe cleanup. The
    migrations create the chat tables, secure profile search and direct-chat
    RPCs, profile trigger, row-level security policies, group roles/admin
    commands, message reactions, invite flows, channels, contact-only statuses,
    chat-avatar storage, admin settings RPCs, status privacy controls, profile
    preview data/actions, read receipts, private chat-live Realtime policies,
    recipient-only mention notifications for direct and group chats, per-chat
-   mute preferences, unread indicators, and private mention-alert preferences.
+   mute preferences, unread indicators, private mention-alert preferences,
+   and per-chat disappearing-message timers. The disappearing-message feature
+   also requires the `cleanup-expired-media` Edge Function to be deployed.
    Read receipts are visible only to members of the same chat; typing and
    presence use private per-chat channels and are never stored as message rows.
    Message replies are
@@ -180,6 +187,12 @@ can access.
    enables chat-filtered Realtime updates. Message search stores a generated
    `tsvector`, indexes it with GIN, enforces membership/public-channel access in
    its RPC, and limits queries to 100 characters and pages to 50 results.
+   Disappearing-message timers are available in direct and group conversation
+   details (Off, 24 hours, 7 days, or 90 days). They apply only to new messages,
+   start when sent, and are enforced by the database; direct-chat members may
+   change the timer, while only group admins may change it. Expired messages
+   are permanently removed by a server-side `pg_cron` job, with expired media
+   blocked immediately and cleaned up through an authenticated Edge Function.
 2. Copy `.env.example` to `.env.local` and set `VITE_SUPABASE_URL` and
    `VITE_SUPABASE_ANON_KEY` from the Supabase project API settings. These are
    browser-visible client settings; never use a Supabase secret/service-role key.
@@ -192,6 +205,11 @@ can access.
    For Tenor GIF search, create a Tenor API key, add it as the `TENOR_API_KEY`
    secret under Supabase **Edge Functions → Secrets**, then deploy the function
    with `supabase functions deploy tenor-search --project-ref <project-ref>`.
+   Deploy `cleanup-expired-media` with
+   `supabase functions deploy cleanup-expired-media --project-ref <project-ref>`
+   so its server-side worker can remove expired attachments. It uses Supabase's
+   built-in Edge Function service-role secret; never add that key to the client
+   or source control.
    Do not add the Tenor key to `.env.local`, Vercel `VITE_` settings, or source
    control. GIF search is authenticated and sends search terms to Tenor.
 5. Create two accounts using distinct usernames. Search for the other account
@@ -203,12 +221,15 @@ can access.
    previewing/removing queued items, observing upload progress, and retrying an
    intentionally failed upload. Confirm each file sends as its own message.
    Test status and voice-note flows with files under 25 MB. Apply all
-   seventeen SQL migrations before testing channels, group/channel settings,
-   profile photos, statuses, message media, and replies.
+   eighteen SQL migrations before testing channels, group/channel settings,
+   profile photos, statuses, message media, replies, and disappearing messages.
 8. In two accounts, open the same direct chat. Scroll the recipient to the
    bottom to send a read receipt; confirm the sender sees a grey sent tick turn
    orange with two ticks. Type in the composer to confirm the other member sees
-   a temporary typing indicator, then verify online/last-seen details.
+   a temporary typing indicator, then verify online/last-seen details. Open
+   direct-chat details or group details to choose a disappearing-message
+   timer; confirm new messages inherit it and group members cannot change it
+   unless they are admins.
 9. Send multiple messages from one account, then open the receiving account's
    chat list. Confirm the unread total appears in the top bar and document
    title, the row shows the unread count, and the conversation divider appears
