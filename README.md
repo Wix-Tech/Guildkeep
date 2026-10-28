@@ -150,8 +150,9 @@ can access.
    `db/supabase/015_unread_behavior.sql`, and
    `db/supabase/016_voice_note_metadata.sql`,
    `db/supabase/017_notification_preferences.sql`,
-   `db/supabase/018_disappearing_messages.sql`, and
-   `db/supabase/019_navigation_status_reactions.sql` in order in its SQL Editor. To roll
+   `db/supabase/018_disappearing_messages.sql`,
+   `db/supabase/019_navigation_status_reactions.sql`, and
+   `db/supabase/020_web_push_notifications.sql` in order in its SQL Editor. To roll
    back message replies, run `db/supabase/008_message_replies.down.sql`; to
    roll back reaction scoping, run
    `db/supabase/007_chat_reaction_scoping.down.sql`; to roll back read receipts
@@ -171,7 +172,8 @@ can access.
    messages can be disabled with
    `db/supabase/018_disappearing_messages.down.sql`; status reactions and
    navigation unread counts can be removed with
-   `db/supabase/019_navigation_status_reactions.down.sql`. The rollback turns off
+   `db/supabase/019_navigation_status_reactions.down.sql`; Web Push can be
+   removed with `db/supabase/020_web_push_notifications.down.sql`. The rollback turns off
    future expiry and clears remaining timers while retaining expiry columns
    and pending media-cleanup records for compatibility and safe cleanup. The
    migrations create the chat tables, secure profile search and direct-chat
@@ -182,9 +184,24 @@ can access.
    recipient-only mention notifications for direct and group chats, per-chat
    mute preferences, unread indicators, private mention-alert preferences,
    per-chat disappearing-message timers, unread counts in the navigation,
-   and private status-reaction notifications. Status-reaction notifications
-   are marked read when the Status view is opened. The disappearing-message feature
+   private status-reaction notifications, and opt-in Web Push subscriptions
+   and delivery jobs. Status-reaction notifications are marked read when the
+   Status view is opened. The disappearing-message feature
    also requires the `cleanup-expired-media` Edge Function to be deployed.
+   Web Push also requires `pg_net`, `pg_cron`, the `push-notifications` Edge
+   Function, and two Supabase Vault secrets named `guildkeep_supabase_url` and
+   `guildkeep_push_webhook_secret`. After applying migration 020, add those
+   secrets to Vault: the URL is your project's `https://<project-ref>.supabase.co`
+   URL, and the webhook secret must match `PUSH_WEBHOOK_SECRET` configured below.
+   Push subscription endpoints are restricted to standard Google, Mozilla,
+   Apple, and Windows browser push services.
+   For example, run this in the Supabase SQL Editor, replacing both placeholders:
+   ```sql
+   select vault.create_secret('https://<project-ref>.supabase.co', 'guildkeep_supabase_url');
+   select vault.create_secret('<webhook-secret>', 'guildkeep_push_webhook_secret');
+   ```
+   Generate a webhook secret locally with
+   `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`.
    If the app reports that `get_chat_disappearing_timer` is missing from the
    schema cache after applying migration 018, run
    `notify pgrst, 'reload schema';` in the Supabase SQL Editor.
@@ -224,6 +241,18 @@ can access.
    or source control.
    Do not commit the GIPHY API key to source control. GIF search sends search
    terms directly from the browser to GIPHY.
+   For opt-in Web Push, generate a VAPID key pair locally with
+   `npx --yes web-push generate-vapid-keys`. Set the VAPID public and private
+   keys, a contact such as `mailto:admin@example.com`, and a fresh
+   `PUSH_WEBHOOK_SECRET` as Edge Function secrets:
+   `supabase secrets set --project-ref <project-ref> VAPID_PUBLIC_KEY=<public-key> VAPID_PRIVATE_KEY=<private-key> VAPID_SUBJECT=mailto:admin@example.com PUSH_WEBHOOK_SECRET=<webhook-secret>`.
+   Keep the private key and webhook secret out of source control. Set
+   `VITE_WEB_PUSH_PUBLIC_KEY` to the same VAPID public key in `.env.local` and
+   the Vercel project's Production environment, then deploy
+   `supabase functions deploy push-notifications --project-ref <project-ref>`.
+   After deployment, opt in on each device from **Settings → Notifications**.
+   Push notifications include sender and message previews, which may be visible
+   on the device lock screen.
 5. Create two accounts using distinct usernames. Search for the other account
    in the chat list or choose **New chat**; select **Message**, then send a
    message in the conversation composer.
@@ -233,7 +262,7 @@ can access.
    previewing/removing queued items, observing upload progress, and retrying an
    intentionally failed upload. Confirm each file sends as its own message.
    Test status and voice-note flows with files under 25 MB. Apply all
-   eighteen SQL migrations before testing channels, group/channel settings,
+   twenty SQL migrations before testing channels, group/channel settings,
    profile photos, statuses, message media, replies, and disappearing messages.
 8. In two accounts, open the same direct chat. Scroll the recipient to the
    bottom to send a read receipt; confirm the sender sees a grey sent tick turn

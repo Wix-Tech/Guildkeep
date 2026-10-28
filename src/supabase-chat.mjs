@@ -471,6 +471,46 @@ export async function updateMyMentionNotificationsEnabled(enabled) {
   return data;
 }
 
+export async function getMyPushNotificationPreferences() {
+  const { data, error } = await client().rpc('get_my_push_notification_preferences');
+  if (error) throw error;
+  const preferences = data?.[0];
+  if (!preferences) throw new Error('Push notification preferences were not returned.');
+  return preferences;
+}
+
+export async function updateMyPushNotificationPreferences(preferences) {
+  const { data, error } = await client().rpc('update_my_push_notification_preferences', {
+    new_direct_messages_enabled: preferences.direct_messages_enabled,
+    new_mentions_enabled: preferences.mentions_enabled,
+    new_group_channel_messages_enabled: preferences.group_channel_messages_enabled,
+    new_status_reactions_enabled: preferences.status_reactions_enabled,
+  });
+  if (error) throw error;
+  const updated = data?.[0];
+  if (!updated) throw new Error('Updated push notification preferences were not returned.');
+  return updated;
+}
+
+export async function upsertMyPushSubscription(subscription) {
+  const { data, error } = await client().rpc('upsert_my_push_subscription', {
+    target_endpoint: subscription.endpoint,
+    target_p256dh: subscription.p256dh,
+    target_auth: subscription.auth,
+  });
+  if (error) throw error;
+  if (!data) throw new Error('The push subscription was not saved.');
+  return data;
+}
+
+export async function removeMyPushSubscription(endpoint) {
+  const { data, error } = await client().rpc('remove_my_push_subscription', {
+    target_endpoint: endpoint,
+  });
+  if (error) throw error;
+  return data;
+}
+
 export async function createStatus(statusId, body, mediaPath = null, mediaType = null) {
   const { data, error } = await client().rpc('create_status', {
     status_id: statusId,

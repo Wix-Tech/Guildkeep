@@ -25,6 +25,13 @@ import {
 } from './giphy-gifs.mjs';
 import { buildVoiceWaveform, formatVoiceDuration, VOICE_WAVEFORM_BARS } from './voice-notes.mjs';
 import {
+  getCurrentPushSubscription,
+  isWebPushSupported,
+  serializePushSubscription,
+  subscribeToWebPush,
+  unsubscribeFromWebPush,
+} from './web-push.mjs';
+import {
   activeTypingUsers,
   compareMessageOrder,
   firstUnreadMessageId,
@@ -47,6 +54,7 @@ import {
   getProfile,
   getProfilePreview,
   getMyMentionNotificationsEnabled,
+  getMyPushNotificationPreferences,
   getMyNavigationUnreadCounts,
   getMessage,
   getChatDisappearingTimer,
@@ -106,12 +114,28 @@ import {
   updateMyProfile,
   updateChatSettings,
   updateMyMentionNotificationsEnabled,
+  updateMyPushNotificationPreferences,
+  upsertMyPushSubscription,
+  removeMyPushSubscription,
   updateStatusVisibility,
   markMyStatusReactionNotificationsRead,
   subscribeToStatusReactions,
   toggleStatusReaction,
 } from './supabase-chat.mjs';
 
+const PUSH_PUBLIC_KEY = import.meta.env.VITE_WEB_PUSH_PUBLIC_KEY?.trim() ?? '';
+const DEFAULT_PUSH_PREFERENCES = {
+  direct_messages_enabled: true,
+  mentions_enabled: true,
+  group_channel_messages_enabled: true,
+  status_reactions_enabled: true,
+};
+const PUSH_EVENT_OPTIONS = [
+  { key: 'direct_messages_enabled', id: 'settings-push-direct', label: 'Direct messages', hint: 'Notify me when someone sends a direct message.' },
+  { key: 'mentions_enabled', id: 'settings-push-mentions', label: 'Mentions', hint: 'Notify me when someone mentions me in a group or channel.' },
+  { key: 'group_channel_messages_enabled', id: 'settings-push-groups', label: 'Group and channel messages', hint: 'Notify me about every new group or channel message.' },
+  { key: 'status_reactions_enabled', id: 'settings-push-status', label: 'Status reactions', hint: 'Notify me when someone reacts to my status.' },
+];
 const $ = (idOrSelector) => (
   /[\s.[\]#>:,+~]/.test(idOrSelector)
     ? document.querySelector(idOrSelector)
@@ -153,6 +177,9 @@ const state = {
   statusReactionNotifications: [],
   navigationUnreadCounts: { chats: 0, groups: 0, channels: 0 },
   statusLoadPromise: null,
+  pushPreferences: { ...DEFAULT_PUSH_PREFERENCES },
+  pushSubscription: null,
+  pendingPushNavigation: null,
   selectedMessageId: null,
   replyingTo: null,
   hoveredMessageId: null,
@@ -932,6 +959,16 @@ function renderStatusFeed(authorId = null) {
 function renderSettingsPage() {
   const statusVisibility = state.profile.status_visibility ?? 'contacts';
   const mentionNotificationsEnabled = state.profile.mention_notifications_enabled !== false;
+  const pushSupported = isWebPushSupported({ publicKey: PUSH_PUBLIC_KEY });
+  const pushStatus = !PUSH_PUBLIC_KEY
+    ? 'Push notifications are not configured for this deployment.'
+    : !pushSupported
+      ? 'This browser does not support web push notifications.'
+      : state.pushSubscription
+        ? 'Push notifications are enabled on this device.'
+        : Notification.permission === 'denied'
+          ? 'Notifications are blocked in your browser settings.'
+          : 'Enable push alerts on this device. You can turn them off at any time.';
   $('conversation').innerHTML = `
     <section class="settings-page">
       <h2>Settings</h2>
@@ -954,6 +991,18 @@ function renderSettingsPage() {
       </div>
       <div class="settings-section">
         <h3>Notifications</h3>
+        <div class="settings-row settings-push-device">
+          <span><strong>Push notifications</strong><small id="settings-push-status">${esc(pushStatus)} Alerts show the sender and a message preview, as requested.</small></span>
+          <button id="settings-push-toggle" class="secondary-button" type="button" ${pushSupported ? '' : 'disabled'}>
+            ${state.pushSubscription ? 'Turn off on this device' : 'Enable on this device'}
+          </button>
+        </div>
+        ${PUSH_EVENT_OPTIONS.map((option) => `
+          <label class="settings-row settings-notification-toggle">
+            <span><strong>${esc(option.label)}</strong><small>${esc(option.hint)}</small></span>
+            <input id="${option.id}" data-push-preference="${option.key}" type="checkbox"
+              ${state.pushPreferences[option.key] ? 'checked' : ''} />
+          </label>`).join('')}
         <label class="settings-row settings-notification-toggle">
           <span><strong>Mention alerts</strong><small>Show the unread badge and alert when someone mentions you. Turning this off keeps unread mentions in the bell without a badge or toast.</small></span>
           <input id="settings-mention-notifications" type="checkbox" ${mentionNotificationsEnabled ? 'checked' : ''} />
@@ -967,6 +1016,17 @@ function renderSettingsPage() {
     const button = event.currentTarget;
     button.disabled = true;
     try {
+      const currentSubscription = state.pushSubscription
+        ?? await getCurrentPushSubscription();
+      if (currentSubscription) {
+        await removeMyPushSubscription(currentSubscription.endpoint);
+        try {
+          await unsubscribeFromWebPush({ subscription: currentSubscription });
+        } catch (error) {
+          showToast(`Push alerts were removed from your account, but this browser could not unsubscribe: ${friendlyError(error)}`);
+        }
+        state.pushSubscription = null;
+      }
       await signOut();
     } catch (error) {
       showToast(friendlyError(error));
@@ -1005,6 +1065,55 @@ function renderSettingsPage() {
     } finally {
       checkbox.disabled = false;
     }
+  });
+  $('settings-push-toggle').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      if (state.pushSubscription) {
+        const subscription = state.pushSubscription;
+        await removeMyPushSubscription(subscription.endpoint);
+        await unsubscribeFromWebPush({ subscription });
+        state.pushSubscription = null;
+        showToast('Push notifications are off on this device.');
+      } else {
+        const { subscription, details } = await subscribeToWebPush({
+          publicKey: PUSH_PUBLIC_KEY,
+        });
+        try {
+          await upsertMyPushSubscription(details);
+        } catch (error) {
+          await unsubscribeFromWebPush({ subscription });
+          throw error;
+        }
+        state.pushSubscription = subscription;
+        showToast('Push notifications are on for this device.');
+      }
+      renderSettingsPage();
+    } catch (error) {
+      showToast(`Could not update push notifications: ${friendlyError(error)}`);
+    } finally {
+      if (button.isConnected) button.disabled = false;
+    }
+  });
+  document.querySelectorAll('[data-push-preference]').forEach((input) => {
+    input.addEventListener('change', async (event) => {
+      const checkbox = event.currentTarget;
+      const key = checkbox.dataset.pushPreference;
+      const previous = state.pushPreferences[key];
+      checkbox.disabled = true;
+      try {
+        state.pushPreferences = await updateMyPushNotificationPreferences({
+          ...state.pushPreferences,
+          [key]: checkbox.checked,
+        });
+      } catch (error) {
+        checkbox.checked = previous;
+        showToast(`Could not update push preferences: ${friendlyError(error)}`);
+      } finally {
+        checkbox.disabled = false;
+      }
+    });
   });
 }
 
@@ -2739,6 +2848,65 @@ async function handleIncomingMessage(message) {
   }
 }
 
+function takePushNavigationFromUrl() {
+  const url = new URL(location.href);
+  const statusId = url.searchParams.get('push_status');
+  const chatId = url.searchParams.get('push_chat');
+  const messageId = url.searchParams.get('push_message');
+  if (!statusId && !(chatId && messageId)) return null;
+  url.searchParams.delete('push_status');
+  url.searchParams.delete('push_chat');
+  url.searchParams.delete('push_message');
+  history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  return statusId
+    ? { type: 'status_reaction', status_id: statusId }
+    : { type: 'message', chat_id: chatId, message_id: messageId };
+}
+
+async function navigateFromPushNotification(data) {
+  if (!state.session) {
+    state.pendingPushNavigation = data;
+    return;
+  }
+  if (data?.type === 'status_reaction' && data.status_id) {
+    updateNavigation('status');
+    await state.statusLoadPromise;
+    const statusCard = [...document.querySelectorAll('.status-card')]
+      .find((card) => card.dataset.statusId === data.status_id);
+    if (!statusCard) {
+      showToast('This status is no longer available.');
+      return;
+    }
+    statusCard.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    await acknowledgeStatusReactionNotifications();
+    return;
+  }
+  if (data?.type !== 'message' || !data.chat_id || !data.message_id) return;
+
+  await refreshChats();
+  let chat = [...state.chats, ...state.channels].find((item) => item.chat_id === data.chat_id);
+  if (!chat) {
+    const channels = await listMyChannels();
+    state.channels = channels.map((channel) => ({
+      ...channel,
+      chat_type: 'channel',
+      is_group: true,
+      participants: [],
+      my_role: channel.role,
+    }));
+    chat = state.channels.find((item) => item.chat_id === data.chat_id);
+  }
+  if (!chat) {
+    showToast('This conversation is no longer available.');
+    return;
+  }
+  const view = chat.chat_type === 'group' ? 'groups'
+    : chat.chat_type === 'channel' ? 'channels' : 'chats';
+  updateNavigation(view);
+  await openChat(chat.chat_id, chat);
+  if (state.activeChatId === chat.chat_id) await scrollToMessage(data.message_id);
+}
+
 async function initialiseWorkspace(session) {
   if (!session) {
     stopChatLive();
@@ -2755,6 +2923,7 @@ async function initialiseWorkspace(session) {
   ) return;
 
   state.session = session;
+  state.pushPreferences = { ...DEFAULT_PUSH_PREFERENCES };
   state.initializingUserId = userId;
   $('auth-panel').hidden = true;
   $('app-shell').hidden = false;
@@ -2775,6 +2944,21 @@ async function initialiseWorkspace(session) {
       ...profile,
       mention_notifications_enabled: mentionNotificationsEnabled,
     };
+    try {
+      state.pushPreferences = await getMyPushNotificationPreferences();
+    } catch (error) {
+      showToast(`Could not load push notification preferences: ${friendlyError(error)}`);
+    }
+    if (state.session?.user?.id !== userId) return;
+    try {
+      state.pushSubscription = await getCurrentPushSubscription();
+      if (state.pushSubscription) {
+        await upsertMyPushSubscription(serializePushSubscription(state.pushSubscription));
+      }
+    } catch (error) {
+      showToast(`Could not sync this device's push subscription: ${friendlyError(error)}`);
+    }
+    if (state.session?.user?.id !== userId) return;
     $('profile-label').textContent = `@${state.profile.username}`;
     await refreshChats();
     if (state.session?.user?.id !== userId) return;
@@ -2837,6 +3021,11 @@ async function initialiseWorkspace(session) {
       }).catch((error) => showToast(`Could not refresh chat memberships: ${friendlyError(error)}`));
     });
     if (state.chats.length) await openChat(state.chats[0].chat_id);
+    const pushNavigation = state.pendingPushNavigation ?? takePushNavigationFromUrl();
+    state.pendingPushNavigation = null;
+    if (pushNavigation) {
+      await navigateFromPushNotification(pushNavigation);
+    }
     await handlePendingInvite();
   } catch (error) {
     showToast(friendlyError(error));
@@ -3541,6 +3730,16 @@ async function forwardSelectedMessage(targetChatId) {
 
 function wire() {
   let messagePressOrigin = null;
+  navigator.serviceWorker?.addEventListener('message', (event) => {
+    if (event.data?.type !== 'guildkeep-push-click') return;
+    if (!state.session) {
+      state.pendingPushNavigation = event.data.data;
+      return;
+    }
+    void navigateFromPushNotification(event.data.data).catch((error) => {
+      showToast(`Could not open the notification: ${friendlyError(error)}`);
+    });
+  });
   $('conversation').addEventListener('input', (event) => {
     if (event.target.id === 'giphy-gif-search') {
       searchGifOptions(event.target.value);

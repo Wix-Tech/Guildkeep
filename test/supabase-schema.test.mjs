@@ -29,6 +29,9 @@ test(
         create function auth.uid() returns uuid
           language sql stable
           as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
+        create function auth.role() returns text
+          language sql stable
+          as $$ select current_setting('request.jwt.claim.role', true) $$;
         create table storage.buckets (
           id text primary key,
           name text not null,
@@ -175,6 +178,22 @@ test(
         new URL('../db/supabase/019_navigation_status_reactions.down.sql', import.meta.url),
         'utf8',
       );
+      const notificationPreferencesMigration = await readFile(
+        new URL('../db/supabase/017_notification_preferences.sql', import.meta.url),
+        'utf8',
+      );
+      const unreadBehaviorMigration = await readFile(
+        new URL('../db/supabase/015_unread_behavior.sql', import.meta.url),
+        'utf8',
+      );
+      const pushNotificationsMigration = await readFile(
+        new URL('../db/supabase/020_web_push_notifications.sql', import.meta.url),
+        'utf8',
+      );
+      const pushNotificationsDownMigration = await readFile(
+        new URL('../db/supabase/020_web_push_notifications.down.sql', import.meta.url),
+        'utf8',
+      );
       const publicationSetup = migration.lastIndexOf('\ndo $$') + 1;
       assert.ok(publicationSetup > 1, 'migration should configure Realtime publication');
       await db.exec(migration.slice(0, publicationSetup));
@@ -251,6 +270,22 @@ test(
       await db.exec(navigationSchemaMigration);
       await db.exec(navigationSchemaMigration);
       assert.match(navigationStatusReactionsDownMigration, /drop table if exists public\.status_reactions/i);
+      await db.exec(unreadBehaviorMigration);
+      await db.exec(unreadBehaviorMigration);
+      await db.exec(notificationPreferencesMigration);
+      await db.exec(notificationPreferencesMigration);
+      assert.match(pushNotificationsMigration, /create table if not exists public\.push_subscriptions/i);
+      assert.match(pushNotificationsMigration, /create table if not exists public\.push_notification_jobs/i);
+      assert.match(pushNotificationsMigration, /set search_path = ''/i);
+      assert.match(pushNotificationsMigration, /x-push-webhook-secret/i);
+      const pushMigrationWithoutExtension = pushNotificationsMigration
+        .replace(/^create extension if not exists pg_net with schema extensions;\s*/i, '');
+      const pushScheduleSetup = pushMigrationWithoutExtension.lastIndexOf('\ndo $$') + 1;
+      assert.ok(pushScheduleSetup > 1, 'push migration should schedule retry and queue cleanup jobs');
+      const pushSchemaMigration = pushMigrationWithoutExtension.slice(0, pushScheduleSetup);
+      await db.exec(pushSchemaMigration);
+      await db.exec(pushSchemaMigration);
+      assert.match(pushNotificationsDownMigration, /drop table if exists public\.push_notification_jobs/i);
 
       const userA = '00000000-0000-4000-8000-000000000001';
       const userB = '00000000-0000-4000-8000-000000000002';
@@ -312,6 +347,102 @@ test(
         [inserted[0].id],
       );
       assert.equal(initialExpiry[0].expires_at, null, 'messages sent with the timer off do not expire');
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
+      const { rows: defaultPushPreferences } = await db.query(
+        `select * from public.get_my_push_notification_preferences()`,
+      );
+      assert.deepEqual(defaultPushPreferences, [{
+        direct_messages_enabled: true,
+        mentions_enabled: true,
+        group_channel_messages_enabled: true,
+        status_reactions_enabled: true,
+      }]);
+      await assert.rejects(
+        db.query(
+          `select public.upsert_my_push_subscription($1, $2, $3)`,
+          ['https://127.0.0.1/admin', 'p'.repeat(65), 'a'.repeat(24)],
+        ),
+        /invalid push subscription/i,
+      );
+      const endpoint = 'https://fcm.googleapis.com/subscription/user-b';
+      await db.query(
+        `select public.upsert_my_push_subscription($1, $2, $3)`,
+        [endpoint, 'p'.repeat(65), 'a'.repeat(24)],
+      );
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
+      const { rows: directPushMessage } = await db.query(
+        `insert into public.messages (chat_id, sender_id, body)
+         values ($1, $2, 'A direct-message push preview')
+         returning id`,
+        [chatId, userA],
+      );
+      const { rows: pushGroup } = await db.query(
+        `select public.create_group('Push notifications', array['sam_two']) as chat_id`,
+      );
+      const pushGroupId = pushGroup[0].chat_id;
+      const { rows: mentionPushMessage } = await db.query(
+        `insert into public.messages (chat_id, sender_id, body)
+         values ($1, $2, 'A group mention for @sam_two')
+         returning id`,
+        [pushGroupId, userA],
+      );
+      const { rows: groupPushMessage } = await db.query(
+        `insert into public.messages (chat_id, sender_id, body)
+         values ($1, $2, 'A group message for everyone')
+         returning id`,
+        [pushGroupId, userA],
+      );
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
+      const { rows: pushStatus } = await db.query(
+        `select public.create_status(
+          '00000000-0000-4000-8000-000000000005',
+          'Push reaction status'
+        ) as status_id`,
+      );
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
+      await db.query(
+        `select * from public.toggle_status_reaction($1, '❤️')`,
+        [pushStatus[0].status_id],
+      );
+      await db.exec('reset role');
+      const { rows: pushJobs } = await db.query(
+        `select user_id, title, body, data from public.push_notification_jobs order by id`,
+      );
+      assert.equal(pushJobs.length, 4);
+      assert.ok(pushJobs.some((job) => job.body === 'A direct-message push preview'
+        && job.data.message_id === directPushMessage[0].id));
+      assert.ok(pushJobs.some((job) => job.title.includes('mentioned you')
+        && job.body === 'A group mention for @sam_two'
+        && job.data.message_id === mentionPushMessage[0].id));
+      assert.ok(pushJobs.some((job) => job.body === 'A group message for everyone'
+        && job.data.message_id === groupPushMessage[0].id));
+      assert.ok(pushJobs.some((job) => job.title.includes('reacted to your status')
+        && job.data.status_id === pushStatus[0].status_id));
+      await db.query(
+        `delete from public.messages where id = $1`,
+        [directPushMessage[0].id],
+      );
+      await db.query(`delete from public.chats where id = $1`, [pushGroupId]);
+      await db.query(
+        `delete from public.status_posts where id = $1`,
+        [pushStatus[0].status_id],
+      );
+      await db.exec('set role authenticated');
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userB]);
+      await assert.rejects(
+        db.query(`select * from public.push_notification_jobs`),
+        /permission denied/i,
+      );
+      const { rows: updatedPushPreferences } = await db.query(
+        `select * from public.update_my_push_notification_preferences(false, true, false, false)`,
+      );
+      assert.deepEqual(updatedPushPreferences, [{
+        direct_messages_enabled: false,
+        mentions_enabled: true,
+        group_channel_messages_enabled: false,
+        status_reactions_enabled: false,
+      }]);
+      await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [userA]);
       await db.query(`select public.set_chat_disappearing_timer($1, 86400)`, [chatId]);
       const { rows: expiryProbe } = await db.query(
         `insert into public.messages (chat_id, sender_id, body, media_path, media_type, file_name)

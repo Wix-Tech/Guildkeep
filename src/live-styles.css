@@ -885,6 +885,8 @@
 .settings-notification-toggle { cursor: pointer; }
 .settings-notification-toggle > span { min-width: 0; }
 .settings-notification-toggle > input { flex: 0 0 18px; width: 18px; min-height: 18px; margin: 0 3px 0 0; accent-color: var(--accent); }
+.settings-push-device > span { min-width: 0; }
+.settings-push-device > button { flex: 0 0 auto; }
 .privacy-value { color: #ffc092; font-size: 10px; }
 .feature-form { display: grid; gap: 12px; }
 .feature-form label { display: grid; gap: 6px; color: #c8b9ae; font-size: 11px; }
@@ -1102,6 +1104,8 @@
   .message-reply-shortcut { display: none; }
   .status-feed { padding: 12px; }
   .settings-page { padding: 18px 14px; }
+  .settings-push-device { align-items: flex-start; }
+  .settings-push-device > button { max-width: 140px; min-height: 38px; white-space: normal; }
   .profile-preview-backdrop { align-items: flex-end; justify-content: center; }
   .profile-preview-panel {
     width: 100%;

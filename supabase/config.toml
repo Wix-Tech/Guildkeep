@@ -5,3 +5,6 @@ verify_jwt = true
 
 [functions.cleanup-expired-media]
 verify_jwt = true
+
+[functions.push-notifications]
+verify_jwt = false
