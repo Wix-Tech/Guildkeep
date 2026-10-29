@@ -314,7 +314,7 @@
 .jump-to-latest svg { width: 14px; height: 14px; color: #e8873a; }
 .jump-to-latest:focus-visible { outline: 2px solid #e8873a; outline-offset: 2px; }
 .day-label { align-self: center; margin: 4px 0 10px; padding: 5px 11px; color: #bfa18c; background: rgba(37, 30, 25, 0.9); border: 1px solid #392a20; border-radius: 999px; font-size: 10px; }
-.message { max-width: min(76%, 560px); align-self: flex-start; padding: 9px 12px 6px; color: #efe6de; background: var(--bubble-in); border: 1px solid rgba(255, 255, 255, 0.035); border-radius: 4px 13px 13px 13px; box-shadow: 0 3px 9px rgba(0, 0, 0, 0.12); font-size: 12px; overflow-wrap: anywhere; }
+.message { max-width: min(76%, 560px); align-self: flex-start; min-width: 0; padding: 9px 12px 6px; color: #efe6de; background: var(--bubble-in); border: 1px solid rgba(255, 255, 255, 0.035); border-radius: 4px 13px 13px 13px; box-shadow: 0 3px 9px rgba(0, 0, 0, 0.12); font-size: 12px; overflow-wrap: anywhere; }
 .message.outgoing { align-self: flex-end; background: var(--bubble-out); border-radius: 13px 4px 13px 13px; }
 .message-sender { display: block; margin-bottom: 3px; color: #edaa7e; font-size: 10px; font-weight: 650; }
 .message-author { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
@@ -322,7 +322,7 @@
 .message-author-avatar .avatar { width: 24px; height: 24px; font-size: 8px; }
 .message-author .message-sender { margin: 0; padding: 0; color: #e8873a; background: transparent; border: 0; cursor: pointer; font: inherit; font-size: 10px; font-weight: 650; text-align: left; }
 .message-sender small { color: #e8873a; font-size: 9px; font-weight: 400; }
-.message-meta { justify-content: flex-end; gap: 4px; margin-top: 4px; color: #b69b87; font-size: 9px; }
+.message-meta { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 4px; color: #b69b87; font-size: 9px; }
 .message-sent-tick { margin-left: 4px; color: #aaa39c; font-size: 11px; letter-spacing: -3px; }
 .message-sent-tick.is-read { color: #f08a45; }
 .message-read-count {
