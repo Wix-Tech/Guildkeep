@@ -314,8 +314,10 @@
 .jump-to-latest svg { width: 14px; height: 14px; color: #e8873a; }
 .jump-to-latest:focus-visible { outline: 2px solid #e8873a; outline-offset: 2px; }
 .day-label { align-self: center; margin: 4px 0 10px; padding: 5px 11px; color: #bfa18c; background: rgba(37, 30, 25, 0.9); border: 1px solid #392a20; border-radius: 999px; font-size: 10px; }
-.message { max-width: min(76%, 560px); align-self: flex-start; min-width: 0; padding: 9px 12px 6px; color: #efe6de; background: var(--bubble-in); border: 1px solid rgba(255, 255, 255, 0.035); border-radius: 4px 13px 13px 13px; box-shadow: 0 3px 9px rgba(0, 0, 0, 0.12); font-size: 12px; overflow-wrap: anywhere; }
-.message.outgoing { align-self: flex-end; background: var(--bubble-out); border-radius: 13px 4px 13px 13px; }
+.message { max-width: min(76%, 560px); align-self: flex-start; min-width: 0; padding: 9px 12px 6px; color: #efe6de; background: var(--bubble-in); border: 1px solid rgba(255, 255, 255, 0.035); border-radius: 16px; box-shadow: 0 3px 9px rgba(0, 0, 0, 0.12); font-size: 12px; overflow-wrap: anywhere; }
+.message.outgoing { align-self: flex-end; background: var(--bubble-out); border-radius: 18px; }
+.message.is-group-continuation { border-radius: 16px 16px 0 0; margin-top: -6px; }
+.message.outgoing.is-group-continuation { border-radius: 18px 18px 0 0; }
 .message-sender { display: block; margin-bottom: 3px; color: #edaa7e; font-size: 10px; font-weight: 650; }
 .message-author { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .message-author-avatar { width: 24px; height: 24px; flex: 0 0 24px; padding: 0; background: transparent; border: 0; border-radius: 50%; }

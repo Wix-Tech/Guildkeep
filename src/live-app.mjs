@@ -1369,6 +1369,14 @@ function renderMessages() {
         ? '<div class="new-messages-divider" role="separator" aria-label="New messages"><span>New messages</span></div>'
         : '';
       const own = message.sender_id === state.session.user.id;
+      const senderKey = (item) => (item.sender_id === state.session.user.id ? 'own' : item.sender_id);
+      const groupStart = !previous
+        || isNewDay
+        || senderKey(previous) !== senderKey(message);
+      const nextMessage = index + 1 < state.messages.length ? state.messages[index + 1] : null;
+      const nextIsNewDay = !nextMessage
+        || new Date(nextMessage.created_at).toDateString() !== new Date(message.created_at).toDateString();
+      const isGroupLast = !nextMessage || nextIsNewDay || senderKey(nextMessage) !== senderKey(message);
       const senderName = message.sender?.display_name ??
         (own ? state.profile.display_name : state.activeChat?.chat_name ?? 'Member');
       const senderUsername = message.sender?.username ?? '';
@@ -1392,7 +1400,7 @@ function renderMessages() {
         return `${unreadDivider}<div class="message ${own ? 'outgoing' : ''} is-deleted" data-message-id="${esc(message.id)}"><em>Message deleted</em></div>`;
       }
       return `
-        ${unreadDivider}${dateDivider}<div class="message ${own ? 'outgoing' : ''} ${sticker ? 'is-sticker' : ''} ${message.pending_voice ? 'is-pending-voice' : ''}${own && message.id === state.lastSentMessageId ? ' is-sending' : ''}" data-message-id="${esc(message.id)}" tabindex="0">
+        ${unreadDivider}${dateDivider}<div class="message ${own ? 'outgoing' : ''} ${!groupStart ? 'is-group-continuation ' : ''}${sticker ? 'is-sticker' : ''} ${message.pending_voice ? 'is-pending-voice' : ''}${own && message.id === state.lastSentMessageId ? ' is-sending' : ''}" data-message-id="${esc(message.id)}" tabindex="0">
           <div class="message-quick-reactions" aria-label="Quick reactions">
             ${['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji) => `<button type="button"
               data-quick-reaction="${esc(emoji)}" data-reaction-message="${esc(message.id)}"
@@ -1400,7 +1408,7 @@ function renderMessages() {
           </div>
           <button class="message-reply-shortcut" type="button" data-message-reply="${esc(message.id)}"
             aria-label="Reply to ${esc(senderName)}" title="Reply (R)">↶</button>
-          ${!own ? `<div class="message-author">
+          ${!own && groupStart ? `<div class="message-author">
             <button class="profile-preview-trigger message-author-avatar" type="button"
               data-profile-preview-id="${esc(message.sender_id)}"
               ${state.activeChat?.chat_type === 'group' ? `data-profile-preview-context="${esc(state.activeChatId)}"` : ''}
@@ -1419,7 +1427,7 @@ function renderMessages() {
           </button>` : ''}
           ${message.body ? `<div class="message-text">${renderPickerContent(message.body, message.id)}</div>` : ''}
           ${media}
-          <span class="message-meta">${renderMessageMeta(message)}</span>
+          ${isGroupLast ? `<span class="message-meta">${renderMessageMeta(message)}</span>` : ''}
           ${reactionMarkup ? `<div class="message-reactions" aria-label="Reactions">${reactionMarkup}</div>` : ''}
         </div>`;
     })
