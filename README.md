@@ -303,6 +303,9 @@ can access.
  16. In a conversation, confirm message meta rows (timestamps/ticks/read
      receipts) right-align inside the bubble and incoming/outgoing bubbles stay
      on their correct sides with no overflow.
+ 17. Open a tall dialog (e.g. group details) on a short viewport and confirm it
+     stays within the screen with scroll instead of overflowing; confirm overlays
+     clear the notch/home indicator area via safe-area insets.
 
 Email confirmation behavior is controlled by the Supabase Auth project settings.
 The client never contains a service-role key. Direct chat creation and message
