@@ -1228,6 +1228,37 @@ function formatMessageTime(timestamp) {
   return new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
+function renderMessageMeta(message) {
+  const own = message.sender_id === state.session.user.id;
+  const readCount = readMessageCount(
+    state.messages,
+    message.id,
+    state.session.user.id,
+    state.readReceipts,
+  );
+  const directPeerId = state.activeChat?.participants
+    ?.find((person) => person.id !== state.session.user.id)?.id;
+  const peerReceipt = state.readReceipts.find((receipt) => receipt.user_id === directPeerId);
+  const readByPeer = peerReceipt
+    ? readMessageCount(state.messages, message.id, state.session.user.id, [peerReceipt]) > 0
+    : false;
+  const edited = message.edited_at ? 'edited · ' : '';
+  const time = esc(formatMessageTime(message.created_at));
+  const tick = own && state.activeChat?.chat_type === 'direct'
+    ? `<span class="message-sent-tick ${readByPeer ? 'is-read' : ''}" aria-label="${readByPeer ? 'Read' : 'Sent'}">${readByPeer ? '✓✓' : '✓'}</span>`
+    : own && state.activeChat?.chat_type === 'group' && readCount
+      ? `<button class="message-read-count" type="button" data-read-count="${readCount}" title="${readCount} member${readCount === 1 ? '' : 's'} read this message">${readCount} read</button>`
+      : '';
+  return `${edited}${time}${tick}`;
+}
+
+function updateMessageMeta(messageId) {
+  const meta = document.querySelector(`.message[data-message-id="${CSS.escape(messageId)}"] .message-meta`);
+  const message = state.messages.find((item) => item.id === messageId);
+  if (!meta || !message) return;
+  meta.innerHTML = renderMessageMeta(message);
+}
+
 function renderMessages() {
   const list = $('message-list');
   if (!list) return;
@@ -1295,18 +1326,6 @@ function renderMessages() {
       const sticker = isStandaloneSticker(message.body);
       const replyTo = Array.isArray(message.reply_to) ? message.reply_to[0] : message.reply_to;
       const reactions = state.reactions.get(message.id) ?? [];
-      const readCount = readMessageCount(
-        state.messages,
-        message.id,
-        state.session.user.id,
-        state.readReceipts,
-      );
-      const directPeerId = state.activeChat?.participants
-        ?.find((person) => person.id !== state.session.user.id)?.id;
-      const peerReceipt = state.readReceipts.find((receipt) => receipt.user_id === directPeerId);
-      const readByPeer = peerReceipt
-        ? readMessageCount(state.messages, message.id, state.session.user.id, [peerReceipt]) > 0
-        : false;
       const media = renderMessageMedia(message);
       const reactionMarkup = ['👍', '❤️', '😂', '😮', '😢', '🙏']
         .map((emoji) => {
@@ -1351,14 +1370,7 @@ function renderMessages() {
           </button>` : ''}
           ${message.body ? `<div class="message-text">${renderPickerContent(message.body, message.id)}</div>` : ''}
           ${media}
-          <span class="message-meta">${message.edited_at ? 'edited · ' : ''}${esc(formatMessageTime(message.created_at))}
-            ${own && state.activeChat?.chat_type === 'direct'
-              ? `<span class="message-sent-tick ${readByPeer ? 'is-read' : ''}" aria-label="${readByPeer ? 'Read' : 'Sent'}">${readByPeer ? '✓✓' : '✓'}</span>`
-              : own && state.activeChat?.chat_type === 'group' && readCount
-                ? `<button class="message-read-count" type="button" data-read-count="${readCount}"
-                    title="${readCount} member${readCount === 1 ? '' : 's'} read this message">${readCount} read</button>`
-                : ''}
-          </span>
+          <span class="message-meta">${renderMessageMeta(message)}</span>
           ${reactionMarkup ? `<div class="message-reactions" aria-label="Reactions">${reactionMarkup}</div>` : ''}
         </div>`;
     })
@@ -2892,7 +2904,8 @@ async function markChatReadIfAtBottom() {
       ...state.readReceipts.filter((item) => item.user_id !== state.session.user.id),
       receipt,
     ];
-    renderMessages();
+    const latestMessage = state.messages.at(-1);
+    if (latestMessage) updateMessageMeta(latestMessage.id);
     await refreshChats();
     try {
       await refreshMentions();
