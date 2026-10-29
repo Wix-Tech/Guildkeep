@@ -292,6 +292,10 @@ can access.
      it can run actions and that ? opens the shortcuts sheet; confirm the online
      status ring appears on avatars in a direct chat; paste an image or file into
      the composer and confirm it joins the send queue.
+ 13. Verify the polish pass: while scrolled up in a long conversation, confirm the
+     jump-to-latest button appears and jumps to the latest message, and stays
+     hidden at the bottom; type multi-line drafts and confirm the composer grows
+     up to its cap; clear a draft and confirm the Send button disables.
 
 Email confirmation behavior is controlled by the Supabase Auth project settings.
 The client never contains a service-role key. Direct chat creation and message
