@@ -300,6 +300,9 @@ can access.
      separators render between days and the new-messages divider still appears.
  15. On a narrow phone viewport, confirm the conversation header and composer
      stay aligned with no horizontal scroll and the title ellipsizes safely.
+ 16. In a conversation, confirm message meta rows (timestamps/ticks/read
+     receipts) right-align inside the bubble and incoming/outgoing bubbles stay
+     on their correct sides with no overflow.
 
 Email confirmation behavior is controlled by the Supabase Auth project settings.
 The client never contains a service-role key. Direct chat creation and message
