@@ -306,6 +306,8 @@ can access.
  17. Open a tall dialog (e.g. group details) on a short viewport and confirm it
      stays within the screen with scroll instead of overflowing; confirm overlays
      clear the notch/home indicator area via safe-area insets.
+  18. In a conversation with consecutive messages from one sender, confirm they
+      render as a single grouped bubble (continuation styling, meta only on last).
 
 Email confirmation behavior is controlled by the Supabase Auth project settings.
 The client never contains a service-role key. Direct chat creation and message
