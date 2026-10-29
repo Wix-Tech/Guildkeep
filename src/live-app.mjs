@@ -2502,10 +2502,6 @@ function renderConversation() {
       </header>
       <div id="pinned-message-banner"></div>
       <div class="conversation-body" id="message-list" aria-live="polite"></div>
-      <button id="jump-to-latest" class="jump-to-latest" type="button" hidden aria-label="Jump to the latest message">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 14 6-6 6 6" /></svg>
-        <span>Latest</span>
-      </button>
       <form id="message-form" class="conversation-footer">
         ${type !== 'channel' || ['owner', 'admin'].includes(chat.my_role) ? `
           <div class="reply-strip" id="reply-strip" hidden>
@@ -2531,6 +2527,10 @@ function renderConversation() {
           <button type="submit">Send</button>
         ` : '<div class="channel-readonly-note">Only channel admins can publish. Subscribe to receive channel updates.</div>'}
       </form>
+      <button id="jump-to-latest" class="jump-to-latest" type="button" hidden aria-label="Jump to the latest message">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 14 6-6 6 6" /></svg>
+        <span>Latest</span>
+      </button>
     </div>`;
   renderPickerMediaDraft();
   renderPendingChatMedia();
