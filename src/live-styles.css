@@ -872,8 +872,8 @@
 .setup-panel code { display: block; margin: 8px 0; padding: 9px 10px; color: #f3ae80; background: #1d1713; border-radius: 7px; font-size: 11px; }
 .setup-panel .setup-note { margin-top: 19px; font-size: 10px; }
 
-.dialog-backdrop { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 18px; background: rgba(0, 0, 0, 0.72); }
-.dialog { position: relative; width: min(420px, 100%); padding: 25px; background: #151210; border: 1px solid #493325; border-radius: 17px; box-shadow: 0 24px 90px rgba(0, 0, 0, 0.6); }
+.dialog-backdrop { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: max(18px, env(safe-area-inset-top, 0px)) max(18px, env(safe-area-inset-right, 0px)) max(18px, env(safe-area-inset-bottom, 0px)) max(18px, env(safe-area-inset-left, 0px)); background: rgba(0, 0, 0, 0.72); }
+.dialog { position: relative; width: min(420px, 100%); max-height: calc(100dvh - 36px); overflow-y: auto; padding: 25px; background: #151210; border: 1px solid #493325; border-radius: 17px; box-shadow: 0 24px 90px rgba(0, 0, 0, 0.6); }
 .dialog h2 { margin: 0; font-size: 19px; }
 .dialog > p { margin: 7px 0 18px; color: var(--muted); font-size: 11px; }
 .dialog .form-status { margin-bottom: 0; }
