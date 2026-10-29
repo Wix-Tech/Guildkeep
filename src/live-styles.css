@@ -318,6 +318,8 @@
 .message.outgoing { align-self: flex-end; background: var(--bubble-out); border-radius: 18px; }
 .message.is-group-continuation { border-radius: 16px 16px 0 0; margin-top: -6px; }
 .message.outgoing.is-group-continuation { border-radius: 18px 18px 0 0; }
+.message-tail { position: absolute; top: 0; left: 0; width: 0; height: 0; border-top: 8px solid var(--bubble-in); border-left: 8px solid transparent; border-right: 8px solid transparent; }
+.message-tail.outgoing { right: 0; }
 .message-sender { display: block; margin-bottom: 3px; color: #edaa7e; font-size: 10px; font-weight: 650; }
 .message-author { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .message-author-avatar { width: 24px; height: 24px; flex: 0 0 24px; padding: 0; background: transparent; border: 0; border-radius: 50%; }

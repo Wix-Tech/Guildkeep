@@ -1401,6 +1401,7 @@ function renderMessages() {
       }
       return `
         ${unreadDivider}${dateDivider}<div class="message ${own ? 'outgoing' : ''} ${!groupStart ? 'is-group-continuation ' : ''}${sticker ? 'is-sticker' : ''} ${message.pending_voice ? 'is-pending-voice' : ''}${own && message.id === state.lastSentMessageId ? ' is-sending' : ''}" data-message-id="${esc(message.id)}" tabindex="0">
+          ${groupStart && !isGroupLast ? `<span class="message-tail ${own ? 'outgoing' : ''}" aria-hidden="true"></span>` : ''}
           <div class="message-quick-reactions" aria-label="Quick reactions">
             ${['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji) => `<button type="button"
               data-quick-reaction="${esc(emoji)}" data-reaction-message="${esc(message.id)}"

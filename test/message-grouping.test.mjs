@@ -30,6 +30,9 @@ test('consecutive same-sender messages render as grouped continuations', async (
   assert.match(app, /const isGroupLast = !nextMessage/);
   assert.match(app, /!groupStart \? 'is-group-continuation '/);
   assert.match(app, /\$\{isGroupLast \? `<span class="message-meta">/);
+  assert.match(app, /groupStart && !isGroupLast/);
+  assert.match(app, /message-tail/);
   assert.match(styles, /\.message\.is-group-continuation \{/);
   assert.match(styles, /\.message\.outgoing\.is-group-continuation \{/);
+  assert.match(styles, /\.message-tail \{/);
 });
