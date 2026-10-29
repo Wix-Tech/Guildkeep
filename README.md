@@ -312,6 +312,9 @@ can access.
       and single-message groups do not.
   20. Confirm the jump-to-latest button never overlaps the composer (input + send
       button); it should sit just above the composer when visible.
+  21. After adding the Capacitor native shell, confirm `npm run cap:sync` and the
+      Android platform build artifacts are in place and the web app still builds
+      for the native shell (`webDir: dist`).
 
 Email confirmation behavior is controlled by the Supabase Auth project settings.
 The client never contains a service-role key. Direct chat creation and message
