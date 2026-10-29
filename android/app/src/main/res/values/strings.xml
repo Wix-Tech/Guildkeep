@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Guildkeep</string>
+    <string name="title_activity_main">Guildkeep</string>
+    <string name="package_name">com.guildkeep.app</string>
+    <string name="custom_url_scheme">com.guildkeep.app</string>
+</resources>

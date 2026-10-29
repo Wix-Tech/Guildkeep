@@ -21,13 +21,22 @@
     "serve:search": "node server.mjs",
     "serve:admin": "node admin-server.mjs",
     "test:pg": "node --test test/pg.test.mjs",
-    "test:sqlite": "node --test test/db.test.mjs test/group-admin.test.mjs test/search-engine.test.mjs"
+    "test:sqlite": "node --test test/db.test.mjs test/group-admin.test.mjs test/search-engine.test.mjs",
+    "cap:sync": "npx cap sync",
+    "cap:add:android": "npx cap add android",
+    "cap:add:ios": "npx cap add ios",
+    "cap:android": "npx cap open android",
+    "cap:ios": "npx cap open ios"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.12",
+    "typescript": "^7.0.2",
     "vite": "^7.1.7"
   },
   "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
     "@supabase/supabase-js": "^2.57.4"
   },
   "optionalDependencies": {
