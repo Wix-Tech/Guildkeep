@@ -298,6 +298,8 @@ can access.
      up to its cap; clear a draft and confirm the Send button disables.
  14. In a conversation with messages from more than one day, confirm day
      separators render between days and the new-messages divider still appears.
+ 15. On a narrow phone viewport, confirm the conversation header and composer
+     stay aligned with no horizontal scroll and the title ellipsizes safely.
 
 Email confirmation behavior is controlled by the Supabase Auth project settings.
 The client never contains a service-role key. Direct chat creation and message
