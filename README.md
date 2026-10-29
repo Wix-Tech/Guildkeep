@@ -308,6 +308,8 @@ can access.
      clear the notch/home indicator area via safe-area insets.
   18. In a conversation with consecutive messages from one sender, confirm they
       render as a single grouped bubble (continuation styling, meta only on last).
+  19. In a grouped conversation, confirm the first bubble of a group shows a tail
+      and single-message groups do not.
 
 Email confirmation behavior is controlled by the Supabase Auth project settings.
 The client never contains a service-role key. Direct chat creation and message
