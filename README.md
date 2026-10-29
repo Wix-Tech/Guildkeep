@@ -308,6 +308,26 @@ DATABASE_URL=postgres://app:app@localhost:5432/app npm run serve:search
 docker compose up --build               # real Postgres + both servers
 ```
 
+### Release sign-off checklist (Phase 5)
+
+Before promoting this build to production sign-off, walk the hosted-app manual
+checks in order and confirm each passes against the running deployment:
+
+1. Auth: sign in, sign out, and run the full password reset flow (forgot →
+   recovery → new password → sign in).
+2. Chat basics: open/close conversations, send/receive text, reactions, replies,
+   read receipts, search-and-jump, pinned messages.
+3. Polished surfaces: profile preview (tabs, lightbox, safety actions), command
+   palette (`Cmd/Ctrl+K`, `?`), jump-to-latest, send animation, empty state,
+   online status ring, paste-to-queue, composer auto-grow + send gating.
+4. Realtime: typing indicators, presence, read receipts, reactions, pins,
+   mentions, push notifications (if configured).
+5. Edge cases: group commands (`/add`, `/kick`, `/ban`, `/promote`, `/demote`),
+   disappearing messages, media upload/queue/retry, admin limits.
+
+Smoke test the production deployment at the Vercel URL after every sign-off item
+that touches the client.
+
 ## API
 
 ```
