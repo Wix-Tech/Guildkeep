@@ -618,7 +618,7 @@
   min-height: 42px;
   max-height: 132px;
   flex: 1;
-  resize: vertical;
+  resize: none;
   padding: 11px 14px;
   color: var(--text);
   background: #1a1715;

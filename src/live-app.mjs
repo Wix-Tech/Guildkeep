@@ -1259,6 +1259,26 @@ function updateMessageMeta(messageId) {
   meta.innerHTML = renderMessageMeta(message);
 }
 
+function autosizeComposerTextarea(composer) {
+  if (!composer) return;
+  composer.style.height = 'auto';
+  composer.style.height = `${Math.min(composer.scrollHeight, 132)}px`;
+}
+
+function updateComposerSendState() {
+  const form = $('message-form');
+  const input = $('#message-form [name="body"]');
+  const sendButton = form?.querySelector('button[type="submit"]');
+  if (!sendButton) return;
+  const queue = state.pendingChatMedia.get(state.activeChatId ?? '') ?? [];
+  const sending = queue.some((item) => item.status === 'uploading');
+  const hasBody = Boolean(
+    String(input?.value ?? '').trim()
+    || messageBodyWithPickerMedia(input?.value ?? ''),
+  );
+  sendButton.disabled = sending || (!hasBody && !queue.length);
+}
+
 function renderMessages() {
   const list = $('message-list');
   if (!list) return;
@@ -3904,6 +3924,8 @@ function wire() {
       return;
     }
     if (!event.target.matches('#message-form textarea')) return;
+    autosizeComposerTextarea(event.target);
+    updateComposerSendState();
     renderMentionSuggestions(event.target);
     if (!state.chatLive || !['direct', 'group'].includes(chatType())) return;
     const now = Date.now();
@@ -4983,6 +5005,7 @@ function wire() {
         input.value = '';
         state.pickerMediaDraft = null;
         renderPickerMediaDraft();
+        autosizeComposerTextarea(input);
       }
       if (state.activeChatId === chatId && !state.messages.some((item) => item.id === message.id)) {
         state.messages.push({ ...message, sender: state.profile });
