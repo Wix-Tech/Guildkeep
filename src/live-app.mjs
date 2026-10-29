@@ -1273,6 +1273,8 @@ function renderMessages() {
         <p class="conversation-empty-title">No messages yet</p>
         <p class="conversation-empty-hint">Send the first message to start this conversation.</p>
       </section>`;
+    const jumpButton = $('jump-to-latest');
+    if (jumpButton) jumpButton.hidden = true;
     return;
   }
 
@@ -1369,6 +1371,7 @@ function renderMessages() {
   bindVoicePlayers(list, playback);
   list.scrollTop = wasAtBottom ? list.scrollHeight : previousScrollTop;
   if (wasAtBottom && state.readAckArmed) void markChatReadIfAtBottom();
+  updateJumpToLatest(list);
 }
 
 function updateReplyStrip() {
@@ -2424,6 +2427,10 @@ function renderConversation() {
       </header>
       <div id="pinned-message-banner"></div>
       <div class="conversation-body" id="message-list" aria-live="polite"></div>
+      <button id="jump-to-latest" class="jump-to-latest" type="button" hidden aria-label="Jump to the latest message">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 14 6-6 6 6" /></svg>
+        <span>Latest</span>
+      </button>
       <form id="message-form" class="conversation-footer">
         ${type !== 'channel' || ['owner', 'admin'].includes(chat.my_role) ? `
           <div class="reply-strip" id="reply-strip" hidden>
@@ -2904,6 +2911,12 @@ function armReadAtBottom(list) {
   if (!isScrolledToBottom(list) || !conversationIsVisible()) return;
   state.readAckArmed = true;
   void markChatReadIfAtBottom();
+}
+
+function updateJumpToLatest(list) {
+  const button = $('jump-to-latest');
+  if (!button || !list) return;
+  button.hidden = !state.messages.length || isScrolledToBottom(list);
 }
 
 function handleTypingEvent(chatId, payload) {
@@ -3933,16 +3946,30 @@ function wire() {
   }, true);
   $('conversation').addEventListener('scroll', (event) => {
     const list = event.target;
-    if (
-      list.id === 'message-list'
-      && Date.now() <= state.scrollIntentUntil
-      && isScrolledToBottom(list)
-      && conversationIsVisible()
-    ) {
-      state.readAckArmed = true;
-      void markChatReadIfAtBottom();
+    if (list.id === 'message-list') {
+      updateJumpToLatest(list);
+      if (
+        Date.now() <= state.scrollIntentUntil
+        && isScrolledToBottom(list)
+        && conversationIsVisible()
+      ) {
+        state.readAckArmed = true;
+        void markChatReadIfAtBottom();
+      }
     }
   }, true);
+  $('conversation').addEventListener('click', async (event) => {
+    const jumpButton = event.target.closest('#jump-to-latest');
+    if (!jumpButton) return;
+    const list = $('message-list');
+    const latest = state.messages.at(-1);
+    if (!latest) return;
+    jumpButton.hidden = true;
+    if (list) {
+      list.scrollTop = list.scrollHeight;
+      armReadAtBottom(list);
+    }
+  });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') void updateLastSeen();
   });
