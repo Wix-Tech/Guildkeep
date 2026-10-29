@@ -296,6 +296,8 @@ can access.
      jump-to-latest button appears and jumps to the latest message, and stays
      hidden at the bottom; type multi-line drafts and confirm the composer grows
      up to its cap; clear a draft and confirm the Send button disables.
+ 14. In a conversation with messages from more than one day, confirm day
+     separators render between days and the new-messages divider still appears.
 
 Email confirmation behavior is controlled by the Supabase Auth project settings.
 The client never contains a service-role key. Direct chat creation and message
