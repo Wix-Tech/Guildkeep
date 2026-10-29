@@ -310,6 +310,8 @@ can access.
       render as a single grouped bubble (continuation styling, meta only on last).
   19. In a grouped conversation, confirm the first bubble of a group shows a tail
       and single-message groups do not.
+  20. Confirm the jump-to-latest button never overlaps the composer (input + send
+      button); it should sit just above the composer when visible.
 
 Email confirmation behavior is controlled by the Supabase Auth project settings.
 The client never contains a service-role key. Direct chat creation and message
