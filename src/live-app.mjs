@@ -199,6 +199,7 @@ const state = {
   voiceSamples: [],
   pendingVoiceUploads: new Map(),
   pendingChatMedia: new Map(),
+  failedSends: [],
   voicePlayback: null,
   recentEmojis: null,
   recentEmojiStorageWarningShown: false,
@@ -1277,6 +1278,28 @@ function updateComposerSendState() {
     || messageBodyWithPickerMedia(input?.value ?? ''),
   );
   sendButton.disabled = sending || (!hasBody && !queue.length);
+}
+
+async function retryFailedSends() {
+  if (!state.failedSends.length) return false;
+  const entry = state.failedSends[0];
+  try {
+    const message = await sendMessage(entry.chatId, state.session.user.id, entry.body, null, entry.replyToId);
+    state.failedSends = state.failedSends.filter((item) => item !== entry);
+    if (state.activeChatId === entry.chatId) {
+      if (!state.messages.some((item) => item.id === message.id)) {
+        state.messages.push({ ...message, sender: state.profile });
+        state.lastSentMessageId = message.id;
+        state.replyingTo = null;
+        updateReplyStrip();
+        renderMessages();
+      }
+    }
+    return true;
+  } catch (error) {
+    showToast(`Could not send: ${friendlyError(error)}`);
+    return false;
+  }
 }
 
 function renderMessages() {
@@ -4009,6 +4032,7 @@ function wire() {
     if (document.visibilityState !== 'visible') void updateLastSeen();
   });
   window.addEventListener('pagehide', () => { void updateLastSeen(); });
+  window.addEventListener('online', () => { void retryFailedSends(); });
 
   $('auth-toggle').addEventListener('click', () => {
     setAuthMode(state.authMode === 'signin' ? 'signup' : 'signin');
@@ -4993,14 +5017,17 @@ function wire() {
     const senderId = state.session.user.id;
     const button = event.target.querySelector('button[type="submit"]');
     button.disabled = true;
+    const replyToId = state.replyingTo?.id ?? null;
     try {
       if (!state.pickerMediaDraft && state.activeChat?.chat_type === 'group' && body.startsWith('/')) {
         await executeGroupCommand(body);
         input.value = '';
         return;
       }
-      const replyToId = state.replyingTo?.id ?? null;
       const message = await sendMessage(chatId, senderId, body, null, replyToId);
+      state.failedSends = state.failedSends.filter(
+        (item) => item.chatId !== chatId || item.body !== body || item.replyToId !== replyToId,
+      );
       if (state.activeChatId === chatId) {
         input.value = '';
         state.pickerMediaDraft = null;
@@ -5016,7 +5043,8 @@ function wire() {
       }
       await refreshChats();
     } catch (error) {
-      showToast(friendlyError(error));
+      if (!body.startsWith('/')) state.failedSends.push({ chatId, body, replyToId });
+      showToast(`Could not send: ${friendlyError(error)}. It will retry when you are back online.`);
     } finally {
       button.disabled = false;
       input.focus();
