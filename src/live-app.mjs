@@ -1358,7 +1358,13 @@ function renderMessages() {
     state.activeChat?.last_read_at,
   );
   list.innerHTML = state.messages
-    .map((message) => {
+    .map((message, index) => {
+      const previous = index > 0 ? state.messages[index - 1] : null;
+      const isNewDay = !previous
+        || new Date(message.created_at).toDateString() !== new Date(previous.created_at).toDateString();
+      const dateDivider = isNewDay
+        ? `<div class="message-date-divider" role="separator" aria-label="New day"><span>${esc(formatMessageDate(message.created_at))}</span></div>`
+        : '';
       const unreadDivider = message.id === firstUnreadId
         ? '<div class="new-messages-divider" role="separator" aria-label="New messages"><span>New messages</span></div>'
         : '';
@@ -1386,7 +1392,7 @@ function renderMessages() {
         return `${unreadDivider}<div class="message ${own ? 'outgoing' : ''} is-deleted" data-message-id="${esc(message.id)}"><em>Message deleted</em></div>`;
       }
       return `
-        ${unreadDivider}<div class="message ${own ? 'outgoing' : ''} ${sticker ? 'is-sticker' : ''} ${message.pending_voice ? 'is-pending-voice' : ''}${own && message.id === state.lastSentMessageId ? ' is-sending' : ''}" data-message-id="${esc(message.id)}" tabindex="0">
+        ${unreadDivider}${dateDivider}<div class="message ${own ? 'outgoing' : ''} ${sticker ? 'is-sticker' : ''} ${message.pending_voice ? 'is-pending-voice' : ''}${own && message.id === state.lastSentMessageId ? ' is-sending' : ''}" data-message-id="${esc(message.id)}" tabindex="0">
           <div class="message-quick-reactions" aria-label="Quick reactions">
             ${['👍', '❤️', '😂', '😮', '😢', '🙏'].map((emoji) => `<button type="button"
               data-quick-reaction="${esc(emoji)}" data-reaction-message="${esc(message.id)}"
@@ -1888,6 +1894,11 @@ function formatLastSeen(timestamp) {
 function formatPreviewDate(timestamp) {
   if (!timestamp || Number.isNaN(new Date(timestamp).getTime())) return '';
   return new Date(timestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function formatMessageDate(timestamp) {
+  if (!timestamp || Number.isNaN(new Date(timestamp).getTime())) return '';
+  return new Date(timestamp).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
 function profilePreviewMarkup(preview, contextChatId) {

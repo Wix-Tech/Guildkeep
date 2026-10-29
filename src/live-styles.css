@@ -181,6 +181,22 @@
   content: "";
   background: #70401f;
 }
+.message-date-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0 10px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+  text-align: center;
+}
+.message-date-divider::before, .message-date-divider::after {
+  height: 1px;
+  flex: 1;
+  content: "";
+  background: #70401f;
+}
 .unread-badge {
   min-width: 19px;
   height: 19px;
